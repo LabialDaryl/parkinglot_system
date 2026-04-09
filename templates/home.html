@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+
+{% block title %}ParkSmart - Smart Parking Solutions{% endblock %}
+
+{% block content %}
+<div class="row align-items-center mb-5">
+    <div class="col-lg-6 mb-4 mb-lg-0">
+        <h1 class="display-4 fw-bold mb-3">Find your perfect<br><span class="text-primary">Parking Spot</span></h1>
+        <p class="lead text-muted mb-4">Open-access parking reservation system. Book a slot, get your 10-minute pass, and park hassle-free.</p>
+        <a href="{% url 'select_slot' %}" class="btn btn-primary px-5 py-3 fs-3 fw-bold rounded-pill shadow mt-3">Book Now</a>
+    </div>
+    <div class="col-lg-6">
+        <div class="glass-panel p-4 text-center">
+            <div class="row g-4">
+                <div class="col-6">
+                    <div class="p-3 rounded" style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2);">
+                        <div class="fs-1 mb-2">🟢</div>
+                        <h3 class="fw-bold mb-0 {% if free > 0 %}text-success{% else %}text-muted{% endif %}">{{ free }}</h3>
+                        <small class="text-muted">Available</small>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="p-3 rounded" style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2);">
+                        <div class="fs-1 mb-2">🟡</div>
+                        <h3 class="fw-bold text-warning mb-0">{{ reserved }}</h3>
+                        <small class="text-muted">Reserved</small>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="p-3 rounded" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2);">
+                        <div class="fs-1 mb-2">🔴</div>
+                        <h3 class="fw-bold text-danger mb-0">{{ occupied }}</h3>
+                        <small class="text-muted">Occupied</small>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="p-3 rounded" style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1);">
+                        <div class="fs-1 mb-2">🅿️</div>
+                        <h3 class="fw-bold mb-0">{{ total }}</h3>
+                        <small class="text-muted">Total Slots</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mt-5">
+    <div class="col-md-4">
+        <div class="card h-100 border-0 bg-transparent text-center">
+            <div class="card-body">
+                <div class="fs-1 mb-3">📱</div>
+                <h4 class="fw-bold">1. Select a Slot</h4>
+                <p class="text-muted">Choose from our available parking slots across different levels.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card h-100 border-0 bg-transparent text-center">
+            <div class="card-body">
+                <div class="fs-1 mb-3">⏳</div>
+                <h4 class="fw-bold">2. Quick Reserve</h4>
+                <p class="text-muted">Get a unique 5-character code valid for 10 minutes to reach your slot.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card h-100 border-0 bg-transparent text-center">
+            <div class="card-body">
+                <div class="fs-1 mb-3">🚗</div>
+                <h4 class="fw-bold">3. Park & Go</h4>
+                <p class="text-muted">Present your code at the gate via ESP32 scanner and secure your spot.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,78 @@
+{% extends 'base.html' %}
+
+{% block title %}Reports & Analytics - ParkSmart{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="fw-bold">Reports & Analytics</h2>
+    <div>
+        <a href="{% url 'admin_dashboard' %}" class="btn btn-outline-light btn-sm me-2">Dashboard</a>
+        <a href="{% url 'admin_slot_management' %}" class="btn btn-outline-light btn-sm me-2">Manage Slots</a>
+        <a href="{% url 'admin_reports' %}" class="btn btn-primary btn-sm">Reports</a>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-md-3">
+        <div class="glass-panel p-4 text-center">
+            <h3 class="display-6 fw-bold text-primary mb-0">{{ total_last_30 }}</h3>
+            <p class="text-muted small text-uppercase mb-0 mt-2">Reservations (30 Days)</p>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="glass-panel p-4 text-center">
+            <h3 class="display-6 fw-bold text-success mb-0">{{ checked_in_count }}</h3>
+            <p class="text-muted small text-uppercase mb-0 mt-2">Total Successfully Parked</p>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="glass-panel p-4 text-center">
+            <h3 class="display-6 fw-bold text-danger mb-0">{{ expired_count }}</h3>
+            <p class="text-muted small text-uppercase mb-0 mt-2">No-Shows (Expired)</p>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="glass-panel p-4 text-center">
+            <h3 class="display-6 fw-bold text-info mb-0">{{ turnover_rate }}%</h3>
+            <p class="text-muted small text-uppercase mb-0 mt-2">Turnover Success Rate</p>
+        </div>
+    </div>
+</div>
+
+<div class="glass-panel p-4">
+    <h5 class="fw-bold mb-4">Last 7 Days Breakdown</h5>
+    <div class="table-responsive">
+        <table class="table table-dark table-sm align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th class="text-center">Total Requests</th>
+                    <th class="text-center">Successfully Checked In</th>
+                    <th class="text-center">Expired / Unused</th>
+                    <th class="w-25">Completion Visual</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for day in daily_data %}
+                <tr>
+                    <td class="text-muted">{{ day.date|date:"F d, Y" }}</td>
+                    <td class="text-center fw-bold">{{ day.total }}</td>
+                    <td class="text-center text-success">{{ day.checked_in }}</td>
+                    <td class="text-center text-danger">{{ day.expired }}</td>
+                    <td>
+                        {% if day.total > 0 %}
+                        <div class="progress" style="height: 6px; background-color: rgba(255,255,255,0.1);">
+                            <div class="progress-bar bg-success" role="progressbar" {{ day.success_attr|safe }}></div>
+                            <div class="progress-bar bg-danger" role="progressbar" {{ day.danger_attr|safe }}></div>
+                        </div>
+                        {% else %}
+                        <span class="small text-muted">-</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

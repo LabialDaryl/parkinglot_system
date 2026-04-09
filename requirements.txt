@@ -1,0 +1,6 @@
+django>=5.0,<6.0
+djangorestframework>=3.15
+django-apscheduler>=0.7.0
+gunicorn>=22.0
+whitenoise>=6.5
+python-dotenv>=1.0

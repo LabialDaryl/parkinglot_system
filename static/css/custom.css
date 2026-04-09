@@ -1,0 +1,202 @@
+/* custom.css */
+:root {
+  --bg-dark: #0f172a;
+  --bg-card: #1e293b;
+  --text-main: #ffffff;
+  --text-muted: #cbd5e1;
+  /* Brighter slate for better contrast on dark */
+  --accent-blue: #60a5fa;
+  /* Brighter blue */
+  --accent-green: #34d399;
+  /* Brighter green */
+  --accent-warning: #fbbf24;
+  /* Brighter amber */
+  --accent-danger: #f87171;
+  /* Brighter red */
+}
+
+body {
+  background-color: var(--bg-dark);
+  color: var(--text-main);
+  font-family: 'Inter', sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Override Bootstrap text colors for better visibility */
+.text-muted {
+  color: var(--text-muted) !important;
+}
+
+/* Navbar */
+.navbar {
+  background: rgba(30, 41, 59, 0.8) !important;
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.navbar-brand {
+  color: var(--text-main) !important;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+.nav-link {
+  color: var(--text-muted) !important;
+  transition: color 0.3s ease;
+}
+
+.nav-link:hover {
+  color: var(--text-main) !important;
+}
+
+/* Cards & Glassmorphism */
+.card,
+.glass-panel {
+  background: var(--bg-card);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  color: var(--text-main);
+}
+
+.card-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* Parking Slots Grid */
+.slot-card {
+  transition: all 0.3s ease;
+  cursor: pointer;
+  height: 100%;
+}
+
+.slot-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.slot-card.status-free {
+  border-left: 4px solid var(--accent-green);
+}
+
+.slot-card.status-reserved {
+  border-left: 4px solid var(--accent-warning);
+  opacity: 0.8;
+  cursor: not-allowed;
+}
+
+.slot-card.status-occupied {
+  border-left: 4px solid var(--accent-danger);
+  opacity: 0.8;
+  cursor: not-allowed;
+}
+
+.slot-card.status-maintenance {
+  border-left: 4px solid #64748b;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Dashboard tables */
+.table {
+  color: var(--text-main);
+}
+
+.table-dark {
+  background-color: transparent;
+}
+
+.table-dark th {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-muted);
+}
+
+.table-dark td {
+  border-bottom-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Forms */
+.form-control,
+.form-select {
+  background-color: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-main);
+  color-scheme: dark;
+}
+
+::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 1 !important;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  background-image: url('data:image/svg+xml;utf8,<svg fill="%23ffffff" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z"/></svg>') !important;
+}
+
+input[type="time"]::-webkit-calendar-picker-indicator {
+  background-image: url('data:image/svg+xml;utf8,<svg fill="%23ffffff" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>') !important;
+}
+
+.form-control:focus,
+.form-select:focus {
+  background-color: rgba(15, 23, 42, 0.8);
+  border-color: var(--accent-blue);
+  color: var(--text-main);
+  box-shadow: 0 0 0 0.25rem rgba(59, 130, 246, 0.25);
+}
+
+.form-control::placeholder {
+  color: var(--text-muted);
+}
+
+/* Receipt Timer */
+.timer-container {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 2.5rem;
+  font-weight: bold;
+  letter-spacing: 2px;
+  background: #0f172a;
+  padding: 10px 20px;
+  border-radius: 8px;
+  display: inline-block;
+  margin: 15px 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.timer-warning {
+  color: var(--accent-warning);
+}
+
+.timer-critical {
+  color: var(--accent-danger);
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+main {
+  flex: 1;
+}
+
+footer {
+  margin-top: auto;
+  padding: 20px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+}

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ParkSmart Receipt - {{ reservation.booking_code }}</title>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        .header {
+            text-align: center;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        .logo { font-size: 32px; margin-bottom: 10px; }
+        .receipt-title { font-size: 24px; font-weight: bold; color: #444; margin: 0; }
+        .code-box {
+            text-align: center;
+            background: #f8f9fa;
+            border: 2px dashed #ccc;
+            padding: 30px;
+            margin-bottom: 30px;
+            border-radius: 8px;
+        }
+        .code {
+            font-size: 48px;
+            font-weight: bold;
+            letter-spacing: 5px;
+            color: #2c3e50;
+            margin: 0;
+            font-family: monospace;
+        }
+        .details {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+        }
+        .details th, .details td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        .details th { width: 40%; color: #666; font-weight: normal; }
+        .details td { font-weight: bold; }
+        .footer {
+            text-align: center;
+            font-size: 14px;
+            color: #888;
+            border-top: 1px solid #eee;
+            padding-top: 20px;
+        }
+        .print-btn {
+            display: block;
+            width: 100%;
+            padding: 15px;
+            background: #000;
+            color: #fff;
+            text-align: center;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin-top: 40px;
+            cursor: pointer;
+            border: none;
+        }
+        @media print {
+            .print-btn { display: none; }
+            body { padding: 0; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="logo">🅿️</div>
+        <h1 class="receipt-title">ParkSmart Pass</h1>
+    </div>
+
+    <div class="code-box">
+        <p style="margin-top:0; color:#666; font-size:14px; text-transform:uppercase;">Booking Code</p>
+        <p class="code">{{ reservation.booking_code }}</p>
+    </div>
+
+    <table class="details">
+        <tr>
+            <th>Plate Number</th>
+            <td style="font-family: monospace; font-size: 1.1em;">{{ reservation.plate_number }}</td>
+        </tr>
+        <tr>
+            <th>Vehicle</th>
+            <td>{{ reservation.vehicle_color }} {{ reservation.vehicle_type }}</td>
+        </tr>
+        <tr>
+            <th>Slot Number</th>
+            <td>{{ reservation.slot.slot_number }}</td>
+        </tr>
+        <tr>
+            <th>Location</th>
+            <td>{{ reservation.slot.location }}</td>
+        </tr>
+        <tr>
+            <th>Date</th>
+            <td>{{ reservation.date|date:"F j, Y" }}</td>
+        </tr>
+        <tr>
+            <th>Expected Arrival</th>
+            <td>{{ reservation.start_time|time:"g:i A" }}</td>
+        </tr>
+        <tr>
+            <th>Status</th>
+            <td>{{ reservation.get_status_display }}</td>
+        </tr>
+        <tr>
+            <th>Valid Until</th>
+            <td>{{ reservation.expires_at|time:"g:i A" }} (10 min from booking)</td>
+        </tr>
+    </table>
+
+    <div class="footer">
+        <p>Please present the 5-character booking code at the entry gate.</p>
+        <p>Generated at: {% now "Y-m-d H:i" %}</p>
+    </div>
+
+    <button class="print-btn" onclick="window.print()">Print Receipt</button>
+
+</body>
+</html>

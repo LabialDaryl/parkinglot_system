@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+
+{% block title %}Admin Dashboard - ParkSmart{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="fw-bold">Overview Dashboard</h2>
+    <div>
+        <a href="{% url 'admin_dashboard' %}" class="btn btn-primary btn-sm me-2">Dashboard</a>
+        <a href="{% url 'admin_slot_management' %}" class="btn btn-outline-light btn-sm me-2">Manage Slots</a>
+        <a href="{% url 'admin_reports' %}" class="btn btn-outline-light btn-sm">Reports</a>
+    </div>
+</div>
+
+<div class="row g-4 mb-5">
+    <!-- Stat Cards -->
+    <div class="col-md-3">
+        <div class="glass-panel p-4 h-100">
+            <p class="text-muted small text-uppercase mb-1">Occupancy Rate</p>
+            <h3 class="display-6 fw-bold mb-0 {% if occupancy_rate > 80 %}text-danger{% elif occupancy_rate < 30 %}text-success{% else %}text-warning{% endif %}">
+                {{ occupancy_rate }}%
+            </h3>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="glass-panel p-4 h-100">
+            <p class="text-muted small text-uppercase mb-1">Total Slots</p>
+            <h3 class="display-6 fw-bold mb-0">{{ total_slots }}</h3>
+            <div class="d-flex justify-content-between mt-2 small">
+                <span class="text-success">Free: {{ free_slots }}</span>
+                <span class="text-secondary">Maint: {{ maintenance_slots }}</span>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="glass-panel p-4 h-100 border-warning border-opacity-25">
+            <p class="text-muted small text-uppercase mb-1">Active / Reserved</p>
+            <h3 class="display-6 fw-bold text-warning mb-0">{{ reserved_slots }}</h3>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="glass-panel p-4 h-100 border-danger border-opacity-25">
+            <p class="text-muted small text-uppercase mb-1">Currently Occupied</p>
+            <h3 class="display-6 fw-bold text-danger mb-0">{{ occupied_slots }}</h3>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-12">
+        <div class="glass-panel p-4">
+            <h5 class="fw-bold mb-4">Recent Reservations</h5>
+            <div class="table-responsive">
+                <table class="table table-dark table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Code / Plate</th>
+                            <th>Slot</th>
+                            <th>Date / Time</th>
+                            <th>Status</th>
+                            <th>Time Left</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for res in recent_reservations %}
+                        <tr>
+                            <td>
+                                <span class="font-monospace text-warning d-block">{{ res.booking_code }}</span>
+                                <span class="text-muted small">{{ res.plate_number }}</span>
+                            </td>
+                            <td>{{ res.slot.slot_number }} <span class="text-muted small d-block">{{ res.slot.location }}</span></td>
+                            <td>{{ res.date|date:"M d" }} <span class="text-muted d-block">{{ res.start_time|time:"H:i" }}</span></td>
+                            <td>
+                                <span class="badge bg-{{ res.status_badge }}">{{ res.get_status_display }}</span>
+                            </td>
+                            <td class="font-monospace text-muted small">
+                                {% if res.status == 'active' %}
+                                    <span class="countdown-minimal" data-seconds="{{ res.time_remaining }}">--:--</span>
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="5" class="text-center text-muted py-4">No recent reservations found.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Minimal timer for the list view
+    document.addEventListener("DOMContentLoaded", function() {
+        const timers = document.querySelectorAll('.countdown-minimal');
+        
+        setInterval(() => {
+            timers.forEach(el => {
+                let sec = parseInt(el.getAttribute('data-seconds'), 10);
+                if (sec > 0) {
+                    sec--;
+                    el.setAttribute('data-seconds', sec);
+                    const m = Math.floor(sec / 60);
+                    const s = sec % 60;
+                    el.textContent = `${m}:${s.toString().padStart(2, '0')}`;
+                    if (sec < 60) el.classList.add('text-danger');
+                } else if (sec === 0) {
+                    el.textContent = "0:00";
+                    el.classList.add('text-danger');
+                    el.setAttribute('data-seconds', -1);
+                }
+            });
+        }, 1000);
+    });
+</script>
+{% endblock %}

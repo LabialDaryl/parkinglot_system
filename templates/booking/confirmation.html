@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+
+{% block title %}Reservation Confirmed - ParkSmart{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6 text-center">
+
+        {% if reservation.status == 'active' %}
+        <div class="fs-1 mb-3">✅</div>
+        <h2 class="fw-bold mb-3">Reservation Confirmed!</h2>
+        <p class="text-muted mb-4">Please present this code at the parking gate before the timer runs out.</p>
+        {% elif reservation.status == 'checked_in' %}
+        <div class="fs-1 mb-3">🚗</div>
+        <h2 class="fw-bold text-success mb-3">Checked In</h2>
+        <p class="text-muted mb-4">You have successfully checked in to your parking slot.</p>
+        {% else %}
+        <div class="fs-1 mb-3">❌</div>
+        <h2 class="fw-bold text-danger mb-3">Reservation Expired</h2>
+        <p class="text-muted mb-4">This reservation has expired. The slot has been released.</p>
+        {% endif %}
+
+        <div class="glass-panel p-4 p-md-5 position-relative overflow-hidden mb-4">
+            <!-- decorative elements -->
+            <div class="position-absolute top-0 start-0 w-100 h-1 mt-0"
+                style="background: linear-gradient(90deg, transparent, var(--accent-blue), transparent);"></div>
+
+            <p class="text-uppercase tracking-widest text-muted small fw-bold mb-2">Booking Code</p>
+            <div class="display-3 fw-bold tracking-widest mb-4"
+                style="letter-spacing: 0.2em; color: var(--accent-green);">
+                {{ reservation.booking_code }}
+            </div>
+
+            <div class="row g-3 text-start mt-4 pt-4 border-top border-secondary border-opacity-25">
+                <div class="col-6">
+                    <p class="text-muted small mb-1">Slot Number</p>
+                    <p class="fs-5 fw-medium mb-0">{{ reservation.slot.slot_number }}</p>
+                </div>
+                <div class="col-6">
+                    <p class="text-muted small mb-1">Location</p>
+                    <p class="fs-5 fw-medium mb-0">{{ reservation.slot.location }}</p>
+                </div>
+                <div class="col-6">
+                    <p class="text-muted small mb-1">Plate Number</p>
+                    <p class="fs-5 fw-medium mb-0 font-monospace">{{ reservation.plate_number }}</p>
+                </div>
+                <div class="col-6">
+                    <p class="text-muted small mb-1">Vehicle</p>
+                    <p class="fs-5 fw-medium mb-0">{{ reservation.vehicle_color }} {{ reservation.vehicle_type }}</p>
+                </div>
+            </div>
+
+            {% if reservation.status == 'active' %}
+            <div class="mt-5" id="timerSection">
+                <p class="text-muted small text-uppercase fw-bold mb-2">Time Remaining to Check-in</p>
+                <div id="countdown" class="timer-container" data-seconds="{{ time_remaining }}"
+                    data-code="{{ reservation.booking_code }}">
+                    --:--
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="d-flex gap-3 justify-content-center">
+            <a href="{% url 'home' %}" class="btn btn-outline-light rounded-pill px-4">Go Home</a>
+            <a href="{% url 'receipt' reservation.booking_code %}" target="_blank"
+                class="btn btn-primary rounded-pill px-4 shadow">
+                TAKE A SCREENSHOT
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% load static %}
+{% if reservation.status == 'active' %}
+<script src="{% static 'js/countdown.js' %}"></script>
+{% endif %}
+{% endblock %}
