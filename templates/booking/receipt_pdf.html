@@ -104,20 +104,12 @@
             <td>{{ reservation.slot.location }}</td>
         </tr>
         <tr>
-            <th>Date</th>
-            <td>{{ reservation.date|date:"F j, Y" }}</td>
-        </tr>
-        <tr>
-            <th>Expected Arrival</th>
-            <td>{{ reservation.start_time|time:"g:i A" }}</td>
-        </tr>
-        <tr>
-            <th>Status</th>
-            <td>{{ reservation.get_status_display }}</td>
+            <th>Duration</th>
+            <td>{{ reservation.duration_minutes }} minutes</td>
         </tr>
         <tr>
             <th>Valid Until</th>
-            <td>{{ reservation.expires_at|time:"g:i A" }} (10 min from booking)</td>
+            <td>{{ reservation.expires_at|time:"g:i A" }} ({{ reservation.duration_minutes }} min from booking)</td>
         </tr>
     </table>
 

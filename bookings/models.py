@@ -60,11 +60,16 @@ class Reservation(models.Model):
     ]
 
     slot = models.ForeignKey(ParkingSlot, on_delete=models.CASCADE, related_name='reservations')
+    DURATION_CHOICES = [
+        (10, '10 minutes'),
+        (20, '20 minutes'),
+        (30, '30 minutes'),
+    ]
+
     booking_code = models.CharField(max_length=5, unique=True, db_index=True)
     reserved_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
-    date = models.DateField(help_text="Booking date")
-    start_time = models.TimeField(help_text="Booking start time")
+    duration_minutes = models.IntegerField(choices=DURATION_CHOICES, default=10, help_text="Reservation duration in minutes")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
     checked_in_at = models.DateTimeField(null=True, blank=True)
     
@@ -88,9 +93,9 @@ class Reservation(models.Model):
         return f"[{self.booking_code}] Slot {self.slot.slot_number} - {self.get_status_display()}"
 
     def save(self, *args, **kwargs):
-        """Auto-set expires_at to 10 minutes after creation."""
+        """Auto-set expires_at based on chosen duration_minutes."""
         if not self.expires_at:
-            self.expires_at = timezone.now() + timedelta(minutes=10)
+            self.expires_at = timezone.now() + timedelta(minutes=self.duration_minutes)
         super().save(*args, **kwargs)
 
     @property

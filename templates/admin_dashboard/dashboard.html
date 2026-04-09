@@ -56,7 +56,8 @@
                         <tr>
                             <th>Code / Plate</th>
                             <th>Slot</th>
-                            <th>Date / Time</th>
+                            <th>Reserved At</th>
+                            <th>Duration</th>
                             <th>Status</th>
                             <th>Time Left</th>
                         </tr>
@@ -69,7 +70,8 @@
                                 <span class="text-muted small">{{ res.plate_number }}</span>
                             </td>
                             <td>{{ res.slot.slot_number }} <span class="text-muted small d-block">{{ res.slot.location }}</span></td>
-                            <td>{{ res.date|date:"M d" }} <span class="text-muted d-block">{{ res.start_time|time:"H:i" }}</span></td>
+                            <td>{{ res.reserved_at|date:"M d" }} <span class="text-muted d-block">{{ res.reserved_at|time:"H:i" }}</span></td>
+                            <td><span class="badge bg-secondary">{{ res.duration_minutes }} min</span></td>
                             <td>
                                 <span class="badge bg-{{ res.status_badge }}">{{ res.get_status_display }}</span>
                             </td>

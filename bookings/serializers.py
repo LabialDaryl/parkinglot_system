@@ -32,7 +32,7 @@ class ReservationSerializer(serializers.ModelSerializer):
         model = Reservation
         fields = [
             'id', 'slot', 'slot_number', 'slot_location', 'booking_code',
-            'reserved_at', 'expires_at', 'date', 'start_time',
+            'reserved_at', 'expires_at', 'duration_minutes',
             'vehicle_type', 'vehicle_color', 'plate_number',
             'status', 'status_display', 'time_remaining', 'checked_in_at',
         ]

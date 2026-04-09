@@ -58,12 +58,12 @@ def reserve_slot_view(request, slot_id):
             # Create the reservation
             booking_code = generate_booking_code()
             now = timezone.now()
+            duration = int(form.cleaned_data['duration_minutes'])
             reservation = Reservation(
                 slot=slot,
                 booking_code=booking_code,
-                expires_at=now + timedelta(minutes=10),
-                date=form.cleaned_data['date'],
-                start_time=form.cleaned_data['start_time'],
+                expires_at=now + timedelta(minutes=duration),
+                duration_minutes=duration,
                 vehicle_type=form.cleaned_data['vehicle_type'],
                 vehicle_color=form.cleaned_data['vehicle_color'],
                 plate_number=form.cleaned_data['plate_number'],
@@ -117,6 +117,27 @@ def check_status_api(request, booking_code):
         })
     except Reservation.DoesNotExist:
         return JsonResponse({'error': 'Reservation not found'}, status=404)
+
+
+def cancel_reservation_view(request, booking_code):
+    """Allow user to cancel their active reservation."""
+    reservation = get_object_or_404(Reservation, booking_code=booking_code)
+
+    if reservation.status == 'active':
+        # Free the slot
+        slot = reservation.slot
+        slot.status = 'free'
+        slot.save()
+
+        # Mark reservation as cancelled
+        reservation.status = 'cancelled'
+        reservation.save()
+
+        messages.success(request, f'Reservation {booking_code} has been successfully cancelled. The slot is now free.')
+    else:
+        messages.warning(request, f'Reservation {booking_code} cannot be cancelled (Current status: {reservation.get_status_display()}).')
+
+    return redirect('home')
 
 
 # ─── Admin Views ─────────────────────────────────────────────────────────────

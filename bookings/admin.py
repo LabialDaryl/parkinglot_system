@@ -11,7 +11,7 @@ class ParkingSlotAdmin(admin.ModelAdmin):
 
 @admin.register(Reservation)
 class ReservationAdmin(admin.ModelAdmin):
-    list_display = ['booking_code', 'plate_number', 'slot', 'date', 'start_time', 'status', 'reserved_at', 'expires_at']
-    list_filter = ['status', 'date', 'vehicle_type']
+    list_display = ['booking_code', 'plate_number', 'slot', 'duration_minutes', 'status', 'reserved_at', 'expires_at']
+    list_filter = ['status', 'vehicle_type', 'duration_minutes']
     search_fields = ['booking_code', 'plate_number']
     readonly_fields = ['booking_code', 'reserved_at']

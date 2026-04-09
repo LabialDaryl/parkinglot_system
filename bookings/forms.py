@@ -9,19 +9,18 @@ class ReservationForm(forms.Form):
         queryset=ParkingSlot.objects.filter(status='free'),
         widget=forms.HiddenInput(),
     )
-    date = forms.DateField(
-        widget=forms.DateInput(attrs={
-            'type': 'date',
-            'class': 'form-control',
-            'id': 'booking-date',
-        })
-    )
-    start_time = forms.TimeField(
-        widget=forms.TimeInput(attrs={
-            'type': 'time',
-            'class': 'form-control',
-            'id': 'booking-time',
-        })
+    DURATION_CHOICES = [
+        (10, '10 minutes'),
+        (20, '20 minutes'),
+        (30, '30 minutes'),
+    ]
+    duration_minutes = forms.ChoiceField(
+        choices=DURATION_CHOICES,
+        widget=forms.RadioSelect(attrs={
+            'class': 'btn-check',
+        }),
+        initial=10,
+        label='Reserve for',
     )
     vehicle_type = forms.ChoiceField(
         choices=[
