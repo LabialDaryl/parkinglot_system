@@ -13,6 +13,7 @@ urlpatterns = [
     path('receipt/<str:booking_code>/', views.receipt_view, name='receipt'),
     path('status/<str:booking_code>/', views.check_status_api, name='check_status'),
     path('cancel/<str:booking_code>/', views.cancel_reservation_view, name='cancel_reservation'),
+    path('find/', views.find_reservation_view, name='find_reservation'),
 
     # ── Admin ─────────────────────────────────────────────────────────
     path('admin-panel/login/', views.admin_login_view, name='admin_login'),

@@ -61,15 +61,15 @@ class Reservation(models.Model):
 
     slot = models.ForeignKey(ParkingSlot, on_delete=models.CASCADE, related_name='reservations')
     DURATION_CHOICES = [
+        (5, '5 minutes'),
         (10, '10 minutes'),
-        (20, '20 minutes'),
-        (30, '30 minutes'),
+        (15, '15 minutes'),
     ]
 
     booking_code = models.CharField(max_length=5, unique=True, db_index=True)
     reserved_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
-    duration_minutes = models.IntegerField(choices=DURATION_CHOICES, default=10, help_text="Reservation duration in minutes")
+    duration_minutes = models.IntegerField(choices=DURATION_CHOICES, default=5, help_text="Reservation duration in minutes")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
     checked_in_at = models.DateTimeField(null=True, blank=True)
     

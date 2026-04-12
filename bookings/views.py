@@ -119,6 +119,22 @@ def check_status_api(request, booking_code):
         return JsonResponse({'error': 'Reservation not found'}, status=404)
 
 
+def find_reservation_view(request):
+    """Handle booking code submission from the navbar modal."""
+    if request.method == 'POST':
+        booking_code = request.POST.get('booking_code', '').strip().upper()
+        if booking_code:
+            try:
+                reservation = Reservation.objects.get(booking_code=booking_code)
+                return redirect('confirmation', booking_code=reservation.booking_code)
+            except Reservation.DoesNotExist:
+                messages.error(request, f'Reservation {booking_code} not found.')
+        else:
+            messages.error(request, 'Please enter a valid booking code.')
+            
+    return redirect(request.META.get('HTTP_REFERER', 'home'))
+
+
 def cancel_reservation_view(request, booking_code):
     """Allow user to cancel their active reservation."""
     reservation = get_object_or_404(Reservation, booking_code=booking_code)

@@ -39,6 +39,9 @@
                     <li class="nav-link-item">
                         <a class="nav-link {% if request.resolver_match.url_name == 'select_slot' %}active{% endif %}" href="{% url 'select_slot' %}">Book a Slot</a>
                     </li>
+                    <li class="nav-link-item">
+                        <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#checkReservationModal">Check Reservation</a>
+                    </li>
                 </ul>
                 <ul class="navbar-nav ms-auto">
                     {% if request.session.is_admin %}
@@ -67,6 +70,32 @@
 
         {% block content %}{% endblock %}
     </main>
+
+    <!-- Check Reservation Modal -->
+    <div class="modal fade" id="checkReservationModal" tabindex="-1" aria-labelledby="checkReservationModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content glass-panel">
+                <div class="modal-header border-bottom-0">
+                    <h5 class="modal-title" id="checkReservationModalLabel">Find Your Reservation</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form method="POST" action="{% url 'find_reservation' %}">
+                    {% csrf_token %}
+                    <div class="modal-body py-4">
+                        <div class="mb-3">
+                            <label for="bookingCodeInput" class="form-label text-muted">Booking Code</label>
+                            <input type="text" class="form-control form-control-lg text-center fw-bold" id="bookingCodeInput" name="booking_code" placeholder="e.g. A9X2B4" required autocomplete="off">
+                            <div class="form-text mt-2 text-muted">Enter the 6-character code you received when booking.</div>
+                        </div>
+                    </div>
+                    <div class="modal-footer border-top-0 d-flex justify-content-between">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary px-4 fw-bold">Check Status</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
 
     <!-- Footer -->
     <footer class="text-center">

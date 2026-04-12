@@ -36,37 +36,41 @@
                         {% endfor %}
                     </div>
                     {% if form.duration_minutes.errors %}
-                        <div class="text-danger small mt-2">{{ form.duration_minutes.errors.0 }}</div>
+                    <div class="text-danger small mt-2">{{ form.duration_minutes.errors.0 }}</div>
                     {% endif %}
                 </div>
 
                 <div class="row mb-4">
                     <div class="col-md-6 mb-3 mb-md-0">
-                        <label for="{{ form.vehicle_type.id_for_label }}" class="form-label text-muted small">Vehicle Type</label>
+                        <label for="{{ form.vehicle_type.id_for_label }}" class="form-label text-muted small">Vehicle
+                            Type</label>
                         {{ form.vehicle_type }}
                         {% if form.vehicle_type.errors %}
-                            <div class="text-danger small mt-1">{{ form.vehicle_type.errors.0 }}</div>
+                        <div class="text-danger small mt-1">{{ form.vehicle_type.errors.0 }}</div>
                         {% endif %}
                     </div>
                     <div class="col-md-6">
-                        <label for="{{ form.vehicle_color.id_for_label }}" class="form-label text-muted small">Vehicle Color</label>
+                        <label for="{{ form.vehicle_color.id_for_label }}" class="form-label text-muted small">Vehicle
+                            Color</label>
                         {{ form.vehicle_color }}
                         {% if form.vehicle_color.errors %}
-                            <div class="text-danger small mt-1">{{ form.vehicle_color.errors.0 }}</div>
+                        <div class="text-danger small mt-1">{{ form.vehicle_color.errors.0 }}</div>
                         {% endif %}
                     </div>
                 </div>
 
                 <div class="mb-4">
-                    <label for="{{ form.plate_number.id_for_label }}" class="form-label text-muted small">Plate Number</label>
+                    <label for="{{ form.plate_number.id_for_label }}" class="form-label text-muted small">Plate
+                        Number</label>
                     {{ form.plate_number }}
                     {% if form.plate_number.errors %}
-                        <div class="text-danger small mt-1">{{ form.plate_number.errors.0 }}</div>
+                    <div class="text-danger small mt-1">{{ form.plate_number.errors.0 }}</div>
                     {% endif %}
                 </div>
 
                 <div class="d-grid mt-5">
-                    <button type="submit" class="btn btn-primary btn-lg rounded-pill shadow">Confirm Reservation</button>
+                    <button type="submit" class="btn btn-primary btn-lg rounded-pill shadow">Confirm
+                        Reservation</button>
                 </div>
             </form>
         </div>
@@ -77,9 +81,18 @@
 {% block extra_js %}
 <style>
     /* Hide the default radio input, style the label as a button */
-    input.btn-check { position: absolute; clip: rect(0,0,0,0); pointer-events: none; }
-    .duration-label { transition: all 0.2s; cursor: pointer; }
-    input.btn-check:checked + .duration-label {
+    input.btn-check {
+        position: absolute;
+        clip: rect(0, 0, 0, 0);
+        pointer-events: none;
+    }
+
+    .duration-label {
+        transition: all 0.2s;
+        cursor: pointer;
+    }
+
+    input.btn-check:checked+.duration-label {
         background-color: var(--accent-blue, #4fc3f7);
         color: #000;
         border-color: var(--accent-blue, #4fc3f7);
@@ -89,7 +102,7 @@
 </style>
 <script>
     // Auto-select the first option (10 min) on load
-    document.addEventListener("DOMContentLoaded", function() {
+    document.addEventListener("DOMContentLoaded", function () {
         const first = document.querySelector('input.btn-check');
         if (first && !document.querySelector('input.btn-check:checked')) {
             first.checked = true;
