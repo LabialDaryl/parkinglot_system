@@ -58,15 +58,22 @@ Servo exitServo;
 
 const int  SERVO_CLOSED_DEG  = 0;
 const int  SERVO_OPEN_DEG    = 90;
-const unsigned long ENTRANCE_OPEN_MS = 5000;
-const unsigned long EXIT_OPEN_MS     = 4000;
 
-enum GateState { GATE_CLOSED, GATE_OPEN };
+// Debounce delay: how long the sensor must hold its state before acting
+const unsigned long GATE_DEBOUNCE_MS = 2000;  // 2 seconds
+
+// 4-state gate machine:
+//   CLOSED          → sensor detects object   → WAITING_TO_OPEN (start 2s timer)
+//   WAITING_TO_OPEN → 2s elapsed              → OPEN (servo opens)
+//   WAITING_TO_OPEN → object removed early    → CLOSED (cancel)
+//   OPEN            → object removed          → WAITING_TO_CLOSE (start 2s timer)
+//   WAITING_TO_CLOSE→ 2s elapsed              → CLOSED (servo closes)
+//   WAITING_TO_CLOSE→ object re-detected      → OPEN (cancel close)
+enum GateState { GATE_CLOSED, GATE_WAITING_TO_OPEN, GATE_OPEN, GATE_WAITING_TO_CLOSE };
 struct Gate {
   Servo*        servo;
-  GateState     state    = GATE_CLOSED;
-  unsigned long openedAt = 0;
-  unsigned long holdMs   = 0;
+  GateState     state     = GATE_CLOSED;
+  unsigned long timerStart = 0;  // when the debounce timer started
 };
 Gate entranceGate;
 Gate exitGate;
@@ -102,23 +109,56 @@ void updateLcdRow3();
 void lcdPrintPadded(int col, int row, const char* str, int width);
 
 // =============================================================================
-//  GATE LOGIC (non-blocking)
+//  GATE LOGIC — debounced 4-state machine (non-blocking)
 // =============================================================================
-void openGate(Gate& gate, const char* label) {
-  if (gate.state == GATE_OPEN) return;
-  gate.servo->write(SERVO_OPEN_DEG);
-  gate.state    = GATE_OPEN;
-  gate.openedAt = millis();
-  Serial.printf("[Gate] %s OPEN\n", label);
-}
+void updateGate(Gate& gate, bool objectDetected, const char* label) {
+  unsigned long now = millis();
 
-void tickGate(Gate& gate, const char* label) {
-  if (gate.state != GATE_OPEN) return;
-  if (millis() - gate.openedAt >= gate.holdMs) {
-    gate.servo->write(SERVO_CLOSED_DEG);
-    gate.state = GATE_CLOSED;
-    Serial.printf("[Gate] %s CLOSED\n", label);
-    updateLcdRow3();
+  switch (gate.state) {
+
+    case GATE_CLOSED:
+      if (objectDetected) {
+        gate.state      = GATE_WAITING_TO_OPEN;
+        gate.timerStart = now;
+        Serial.printf("[Gate] %s: object detected, opening in 2s...\n", label);
+      }
+      break;
+
+    case GATE_WAITING_TO_OPEN:
+      if (!objectDetected) {
+        // Object removed before 2s — cancel
+        gate.state = GATE_CLOSED;
+        Serial.printf("[Gate] %s: object removed, open cancelled\n", label);
+      } else if (now - gate.timerStart >= GATE_DEBOUNCE_MS) {
+        // 2s elapsed with object still present — open the gate
+        gate.servo->write(SERVO_OPEN_DEG);
+        gate.state = GATE_OPEN;
+        Serial.printf("[Gate] %s OPEN\n", label);
+        updateLcdRow3();
+      }
+      break;
+
+    case GATE_OPEN:
+      if (!objectDetected) {
+        gate.state      = GATE_WAITING_TO_CLOSE;
+        gate.timerStart = now;
+        Serial.printf("[Gate] %s: object cleared, closing in 2s...\n", label);
+      }
+      break;
+
+    case GATE_WAITING_TO_CLOSE:
+      if (objectDetected) {
+        // Object re-detected — cancel close, stay open
+        gate.state = GATE_OPEN;
+        Serial.printf("[Gate] %s: object re-detected, close cancelled\n", label);
+      } else if (now - gate.timerStart >= GATE_DEBOUNCE_MS) {
+        // 2s elapsed with no object — close the gate
+        gate.servo->write(SERVO_CLOSED_DEG);
+        gate.state = GATE_CLOSED;
+        Serial.printf("[Gate] %s CLOSED\n", label);
+        updateLcdRow3();
+      }
+      break;
   }
 }
 
@@ -138,8 +178,8 @@ void lcdPrintPadded(int col, int row, const char* str, int width) {
 }
 
 void updateLcdRow3() {
-  bool eOpen = (entranceGate.state == GATE_OPEN);
-  bool xOpen = (exitGate.state    == GATE_OPEN);
+  bool eOpen = (entranceGate.state == GATE_OPEN || entranceGate.state == GATE_WAITING_TO_CLOSE);
+  bool xOpen = (exitGate.state    == GATE_OPEN || exitGate.state    == GATE_WAITING_TO_CLOSE);
   char buf[21];
   if      (eOpen && xOpen) snprintf(buf, 21, "IN:OPEN  OUT:OPEN");
   else if (eOpen)          snprintf(buf, 21, "IN:OPEN  OUT:CLOSED");
@@ -202,19 +242,8 @@ void readGateSensors() {
   bool ent = (digitalRead(PIN_IR_ENTRANCE) == LOW);
   bool ext = (digitalRead(PIN_IR_EXIT)     == LOW);
 
-  if (ent && !prevEntranceTriggered) {
-    Serial.println("[IR] Entrance triggered");
-    openGate(entranceGate, "ENTRANCE");
-    updateLcdRow3();
-  }
-  prevEntranceTriggered = ent;
-
-  if (ext && !prevExitTriggered) {
-    Serial.println("[IR] Exit triggered");
-    openGate(exitGate, "EXIT");
-    updateLcdRow3();
-  }
-  prevExitTriggered = ext;
+  updateGate(entranceGate, ent, "ENTRANCE");
+  updateGate(exitGate,     ext, "EXIT");
 }
 
 // =============================================================================
@@ -394,9 +423,7 @@ void setup() {
   exitServo.write(SERVO_CLOSED_DEG);
 
   entranceGate.servo  = &entranceServo;
-  entranceGate.holdMs = ENTRANCE_OPEN_MS;
   exitGate.servo      = &exitServo;
-  exitGate.holdMs     = EXIT_OPEN_MS;
 
   // -- WiFi --
   lcd.setCursor(0, 2);
@@ -458,12 +485,8 @@ void loop() {
   // ── 1. SLOT SENSORS (instant digitalRead) ─────────────────────────────
   bool sensorChanged = readSlotSensors();
 
-  // ── 2. GATE SENSORS (instant digitalRead) ─────────────────────────────
+  // ── 2. GATE SENSORS (debounced state machine) ─────────────────────────
   readGateSensors();
-
-  // ── 3. GATE CLOSE TIMERS ──────────────────────────────────────────────
-  tickGate(entranceGate, "ENTRANCE");
-  tickGate(exitGate,     "EXIT");
 
   // ── 4. LCD REFRESH (every 300ms OR immediately on sensor change) ──────
   if (sensorChanged || (now - lastLcdRefreshMs >= LCD_REFRESH_MS)) {
