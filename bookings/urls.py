@@ -22,8 +22,9 @@ urlpatterns = [
     path('admin-panel/slots/', views.admin_slot_management_view, name='admin_slot_management'),
     path('admin-panel/reports/', views.admin_reports_view, name='admin_reports'),
 
-    # ── REST API (ESP32 placeholder) ──────────────────────────────────
+    # ── REST API (ESP32) ───────────────────────────────────────────────
     path('api/v1/slots/', api_views.api_slot_list, name='api_slot_list'),
+    path('api/v1/slots/bulk-update/', api_views.api_bulk_update_slots, name='api_bulk_update_slots'),
     path('api/v1/slots/<int:slot_id>/', api_views.api_slot_detail, name='api_slot_detail'),
     path('api/v1/slots/<int:slot_id>/status/', api_views.api_slot_update_status, name='api_slot_update_status'),
     path('api/v1/reservations/validate/', api_views.api_validate_booking, name='api_validate_booking'),

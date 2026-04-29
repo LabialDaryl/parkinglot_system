@@ -1,218 +1,476 @@
+// =============================================================================
+//  SMART PARKING LOT SYSTEM — ESP32 Firmware (Dual-Core)
+//  Target board : ESP32 Dev Module (Arduino IDE)
+//
+//  Architecture:
+//    Core 1 (Arduino loop) — Sensors, LCD, Servos  (runs every ~20ms, NEVER blocks)
+//    Core 0 (FreeRTOS task) — HTTP communication   (runs in background, can block)
+//
+//  Hardware
+//  ─────────────────────────────────────────────────────────────────────────────
+//  LCD 20×4 I2C          : SDA=21, SCL=22  (address 0x27)
+//  Entrance servo        : Pin 25  (0° = closed, 90° = open)
+//  Exit servo            : Pin 26  (0° = closed, 90° = open)
+//  Entrance IR sensor    : Pin 18  (LOW when car detected)
+//  Exit IR sensor        : Pin 19  (LOW when car detected)
+//  8× Slot IR sensors    : Pins 34,35,36,39,32,33,27,14  (LOW = occupied)
+//
+//  Required Libraries (install via Library Manager)
+//  ─────────────────────────────────────────────────────────────────────────────
+//  ArduinoJson      >= 6.x
+//  ESP32Servo       (by Kevin Harrington)
+//  LiquidCrystal_I2C (by Frank de Brabander)
+// =============================================================================
+
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include <ArduinoJson.h>       // Install via Library Manager
-#include <ESP32Servo.h>        // Install via Library Manager
+#include <WiFiClientSecure.h>
+#include <ArduinoJson.h>
+#include <ESP32Servo.h>
 #include <Wire.h>
-#include <LiquidCrystal_I2C.h> // Install via Library Manager
+#include <LiquidCrystal_I2C.h>
 
-// ==========================================
-// CONFIGURATION
-// ==========================================
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
+// =============================================================================
+//  USER CONFIGURATION
+// =============================================================================
+const char* WIFI_SSID        = "PLDTHOMEFIBRdJDaC";
+const char* WIFI_PASSWORD    = "PLDTWIFI7ATcY";
+const char* SERVER_BASE_URL  = "https://parkinglot-system.onrender.com";
 
-// Django Server URL: Change to your laptop's local IP address (e.g. 192.168.1.10)
-// Ensure your Django app is running as: python manage.py runserver 0.0.0.0:8000
-const char* serverBaseUrl = "http://192.168.1.10:8000"; 
+// =============================================================================
+//  PIN MAP
+// =============================================================================
+LiquidCrystal_I2C lcd(0x27, 20, 4);
 
-// ==========================================
-// PIN DEFINITIONS 
-// ==========================================
-// LCD Details
-LiquidCrystal_I2C lcd(0x27, 20, 4); // Address is usually 0x27 or 0x3F
+const int PIN_SERVO_ENTRANCE = 25;
+const int PIN_SERVO_EXIT     = 26;
+const int PIN_IR_ENTRANCE    = 18;
+const int PIN_IR_EXIT        = 19;
+const int NUM_SLOTS          = 8;
+const int IR_SLOT_PINS[NUM_SLOTS] = {34, 35, 36, 39, 32, 33, 27, 14};
+const int DB_SLOT_IDS[NUM_SLOTS]  = {1, 2, 3, 4, 5, 6, 7, 8};
 
-// Servos
+// =============================================================================
+//  SERVO & GATE
+// =============================================================================
 Servo entranceServo;
 Servo exitServo;
-const int entranceServoPin = 25;
-const int exitServoPin = 26;
 
-// IR Sensors (Wait for obstacle: usually LOW)
-const int numSlots = 8;
-const int irPins[numSlots] = {34, 35, 36, 39, 32, 33, 27, 14};
+const int  SERVO_CLOSED_DEG  = 0;
+const int  SERVO_OPEN_DEG    = 90;
+const unsigned long ENTRANCE_OPEN_MS = 5000;
+const unsigned long EXIT_OPEN_MS     = 4000;
 
-// LEDs (Red indicators)
-const int ledPins[numSlots] = {4, 13, 16, 17, 18, 19, 23, 2};
+enum GateState { GATE_CLOSED, GATE_OPEN };
+struct Gate {
+  Servo*        servo;
+  GateState     state    = GATE_CLOSED;
+  unsigned long openedAt = 0;
+  unsigned long holdMs   = 0;
+};
+Gate entranceGate;
+Gate exitGate;
 
-// Django Database Slot IDs mapping (Assuming ID 1 to 8 map to IR sensors 0 to 7)
-const int dbSlotIds[numSlots] = {1, 2, 3, 4, 5, 6, 7, 8};
+// =============================================================================
+//  SHARED STATE (accessed by both cores — use volatile)
+//
+//  Core 1 (loop) WRITES:  currentSlotOccupied[], needsSync
+//  Core 0 (HTTP) READS:   currentSlotOccupied[], needsSync
+//  Core 0 (HTTP) WRITES:  webOnline, webReservedCount, serverKnowsOccupied[]
+//  Core 1 (loop) READS:   webOnline, webReservedCount
+// =============================================================================
+volatile bool currentSlotOccupied[NUM_SLOTS] = {};
+volatile bool serverKnowsOccupied[NUM_SLOTS] = {};
+volatile bool webOnline        = false;
+volatile int  webReservedCount = 0;
+volatile bool needsSync        = false;  // flag for Core 0 to sync
 
-// State keeping
-bool previousOccupancy[numSlots] = {false, false, false, false, false, false, false, false};
+bool prevEntranceTriggered = false;
+bool prevExitTriggered     = false;
 
-// ==========================================
-// SETUP
-// ==========================================
-void setup() {
-  Serial.begin(115200);
+// =============================================================================
+//  TIMING
+// =============================================================================
+const unsigned long LCD_REFRESH_MS = 300;    // refresh LCD every 300ms
+unsigned long lastLcdRefreshMs     = 0;
 
-  // 1. Initialize Default Pins
-  for (int i = 0; i < numSlots; i++) {
-    pinMode(irPins[i], INPUT);
-    pinMode(ledPins[i], OUTPUT);
-    digitalWrite(ledPins[i], LOW);
+// =============================================================================
+//  FORWARD DECLARATIONS
+// =============================================================================
+void updateLCD();
+void updateLcdRow3();
+void lcdPrintPadded(int col, int row, const char* str, int width);
+
+// =============================================================================
+//  GATE LOGIC (non-blocking)
+// =============================================================================
+void openGate(Gate& gate, const char* label) {
+  if (gate.state == GATE_OPEN) return;
+  gate.servo->write(SERVO_OPEN_DEG);
+  gate.state    = GATE_OPEN;
+  gate.openedAt = millis();
+  Serial.printf("[Gate] %s OPEN\n", label);
+}
+
+void tickGate(Gate& gate, const char* label) {
+  if (gate.state != GATE_OPEN) return;
+  if (millis() - gate.openedAt >= gate.holdMs) {
+    gate.servo->write(SERVO_CLOSED_DEG);
+    gate.state = GATE_CLOSED;
+    Serial.printf("[Gate] %s CLOSED\n", label);
+    updateLcdRow3();
+  }
+}
+
+// =============================================================================
+//  LCD RENDERING (Core 1 only)
+//
+//  Row 0: "PARKING  [ONLINE ]" or "PARKING  [OFFLINE]"
+//  Row 1: "Free:6   Rsvd:0"
+//  Row 2: "Occ:2  S:OOXOOOOO"
+//  Row 3: Gate status
+// =============================================================================
+void lcdPrintPadded(int col, int row, const char* str, int width) {
+  lcd.setCursor(col, row);
+  int len = strlen(str);
+  lcd.print(str);
+  for (int i = len; i < width; i++) lcd.print(' ');
+}
+
+void updateLcdRow3() {
+  bool eOpen = (entranceGate.state == GATE_OPEN);
+  bool xOpen = (exitGate.state    == GATE_OPEN);
+  char buf[21];
+  if      (eOpen && xOpen) snprintf(buf, 21, "IN:OPEN  OUT:OPEN");
+  else if (eOpen)          snprintf(buf, 21, "IN:OPEN  OUT:CLOSED");
+  else if (xOpen)          snprintf(buf, 21, "IN:CLOSED OUT:OPEN");
+  else                     snprintf(buf, 21, "Gates: CLOSED");
+  lcdPrintPadded(0, 3, buf, 20);
+}
+
+void updateLCD() {
+  int occupied = 0;
+  char slotMap[NUM_SLOTS + 1];
+  for (int i = 0; i < NUM_SLOTS; i++) {
+    bool occ = currentSlotOccupied[i];
+    if (occ) occupied++;
+    slotMap[i] = occ ? 'X' : 'O';
+  }
+  slotMap[NUM_SLOTS] = '\0';
+
+  int reserved = webReservedCount;
+  int free = NUM_SLOTS - occupied - reserved;
+  if (free < 0) free = 0;
+
+  char buf[21];
+
+  // Row 0
+  snprintf(buf, 21, "PARKING  [%s]", webOnline ? "ONLINE " : "OFFLINE");
+  lcdPrintPadded(0, 0, buf, 20);
+
+  // Row 1
+  snprintf(buf, 21, "Free:%-2d  Rsvd:%-2d", free, reserved);
+  lcdPrintPadded(0, 1, buf, 20);
+
+  // Row 2
+  snprintf(buf, 21, "Occ:%-2d S:%s", occupied, slotMap);
+  lcdPrintPadded(0, 2, buf, 20);
+
+  // Row 3 managed by updateLcdRow3() — not touched here
+}
+
+// =============================================================================
+//  SENSOR READING (Core 1 only — instant digitalRead, no blocking)
+// =============================================================================
+
+bool readSlotSensors() {
+  bool changed = false;
+  for (int i = 0; i < NUM_SLOTS; i++) {
+    bool occ = (digitalRead(IR_SLOT_PINS[i]) == LOW);
+    if (occ != (bool)currentSlotOccupied[i]) {
+      currentSlotOccupied[i] = occ;
+      changed = true;
+      Serial.printf("[IR] Slot %d -> %s\n", DB_SLOT_IDS[i],
+                    occ ? "OCCUPIED" : "FREE");
+    }
+  }
+  if (changed) needsSync = true;
+  return changed;
+}
+
+void readGateSensors() {
+  bool ent = (digitalRead(PIN_IR_ENTRANCE) == LOW);
+  bool ext = (digitalRead(PIN_IR_EXIT)     == LOW);
+
+  if (ent && !prevEntranceTriggered) {
+    Serial.println("[IR] Entrance triggered");
+    openGate(entranceGate, "ENTRANCE");
+    updateLcdRow3();
+  }
+  prevEntranceTriggered = ent;
+
+  if (ext && !prevExitTriggered) {
+    Serial.println("[IR] Exit triggered");
+    openGate(exitGate, "EXIT");
+    updateLcdRow3();
+  }
+  prevExitTriggered = ext;
+}
+
+// =============================================================================
+//  HTTP TASK — runs on Core 0 in a FreeRTOS task
+//  This is the ONLY place that does network I/O.
+//  It can block for 5-10 seconds on SSL handshake without affecting sensors.
+// =============================================================================
+
+WiFiClientSecure makeSecureClient() {
+  WiFiClientSecure c;
+  c.setInsecure();
+  return c;
+}
+
+void fetchStatusFromServer() {
+  WiFiClientSecure client = makeSecureClient();
+  HTTPClient http;
+
+  String url = String(SERVER_BASE_URL) + "/api/v1/slots/";
+  http.begin(client, url);
+  http.setTimeout(10000);  // Can be long — runs on separate core
+
+  int code = http.GET();
+  if (code != 200) {
+    Serial.printf("[HTTP] GET -> %d\n", code);
+    webOnline = false;
+    http.end();
+    return;
   }
 
-  // 2. Initialize LCD
+  webOnline = true;
+  String payload = http.getString();
+  http.end();
+
+  DynamicJsonDocument doc(4096);
+  DeserializationError err = deserializeJson(doc, payload);
+  if (err) {
+    Serial.printf("[JSON] Parse error: %s\n", err.f_str());
+    return;
+  }
+
+  int cntReserved = 0;
+  JsonArray slots;
+  if (doc.containsKey("results"))
+    slots = doc["results"].as<JsonArray>();
+  else
+    slots = doc.as<JsonArray>();
+
+  for (JsonObject slot : slots) {
+    int    id     = slot["id"]     | 0;
+    String status = slot["status"] | "unknown";
+    if (status == "reserved") cntReserved++;
+
+    for (int i = 0; i < NUM_SLOTS; i++) {
+      if (DB_SLOT_IDS[i] == id) {
+        serverKnowsOccupied[i] = (status == "occupied");
+      }
+    }
+  }
+
+  webReservedCount = cntReserved;
+  Serial.printf("[Server] Rsvd:%d  ONLINE\n", cntReserved);
+}
+
+// Bulk-sync all changed slots in a SINGLE HTTP call
+void bulkSyncToServer() {
+  // Build the list of slots that are out of sync
+  DynamicJsonDocument doc(1024);
+  JsonArray arr = doc.createNestedArray("slots");
+  bool anyDiff = false;
+
+  for (int i = 0; i < NUM_SLOTS; i++) {
+    bool physical = currentSlotOccupied[i];
+    bool serverKnows = serverKnowsOccupied[i];
+    if (physical != serverKnows) {
+      JsonObject entry = arr.createNestedObject();
+      entry["id"]     = DB_SLOT_IDS[i];
+      entry["status"] = physical ? "occupied" : "free";
+      anyDiff = true;
+    }
+  }
+
+  if (!anyDiff) return;
+
+  WiFiClientSecure client = makeSecureClient();
+  HTTPClient http;
+
+  String url = String(SERVER_BASE_URL) + "/api/v1/slots/bulk-update/";
+  http.begin(client, url);
+  http.addHeader("Content-Type", "application/json");
+  http.setTimeout(10000);
+
+  String body;
+  serializeJson(doc, body);
+  Serial.printf("[HTTP] POST bulk-update: %s\n", body.c_str());
+
+  int code = http.POST(body);
+  if (code == 200) {
+    // Mark all synced
+    for (int i = 0; i < NUM_SLOTS; i++) {
+      serverKnowsOccupied[i] = currentSlotOccupied[i];
+    }
+    Serial.println("[Server] Bulk sync OK");
+  } else {
+    Serial.printf("[Server] Bulk sync FAIL(%d)\n", code);
+  }
+  http.end();
+}
+
+// The FreeRTOS task function that runs on Core 0
+void httpTask(void* parameter) {
+  const unsigned long POLL_INTERVAL = 5000;  // 5 seconds between server polls
+
+  // Wait for WiFi before starting
+  while (WiFi.status() != WL_CONNECTED) {
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+  }
+
+  for (;;) {
+    if (WiFi.status() == WL_CONNECTED) {
+      // 1. Fetch latest status from server
+      fetchStatusFromServer();
+
+      // 2. If any sensors changed, bulk-sync to server
+      if (needsSync) {
+        needsSync = false;
+        bulkSyncToServer();
+      }
+    } else {
+      webOnline = false;
+      Serial.println("[WiFi] Disconnected, retrying...");
+      WiFi.reconnect();
+    }
+
+    // Wait before next poll (this delay does NOT affect Core 1)
+    vTaskDelay(POLL_INTERVAL / portTICK_PERIOD_MS);
+  }
+}
+
+// =============================================================================
+//  SETUP
+// =============================================================================
+void setup() {
+  Serial.begin(115200);
+  delay(200);
+  Serial.println("\n[Boot] Smart Parking System (Dual-Core) starting...");
+
+  // -- Slot IR sensor pins --
+  for (int i = 0; i < NUM_SLOTS; i++) {
+    pinMode(IR_SLOT_PINS[i], INPUT);
+    currentSlotOccupied[i] = (digitalRead(IR_SLOT_PINS[i]) == LOW);
+  }
+
+  // -- Gate IR sensor pins --
+  pinMode(PIN_IR_ENTRANCE, INPUT);
+  pinMode(PIN_IR_EXIT,     INPUT);
+
+  // -- LCD --
+  Wire.begin();
   lcd.init();
   lcd.backlight();
   lcd.setCursor(0, 0);
-  lcd.print("System Initializing.");
+  lcd.print("Smart Parking v2.0  ");
+  lcd.setCursor(0, 1);
+  lcd.print("Dual-Core Mode      ");
 
-  // 3. Initialize Servos (Using ESP32Servo to prevent jitter)
+  // -- Servos --
   ESP32PWM::allocateTimer(0);
   ESP32PWM::allocateTimer(1);
   ESP32PWM::allocateTimer(2);
   ESP32PWM::allocateTimer(3);
   entranceServo.setPeriodHertz(50);
   exitServo.setPeriodHertz(50);
-  entranceServo.attach(entranceServoPin, 500, 2400);
-  exitServo.attach(exitServoPin, 500, 2400);
-  entranceServo.write(0); // Barrier down
-  exitServo.write(0);     // Barrier down
+  entranceServo.attach(PIN_SERVO_ENTRANCE, 500, 2400);
+  exitServo.attach(PIN_SERVO_EXIT,         500, 2400);
+  entranceServo.write(SERVO_CLOSED_DEG);
+  exitServo.write(SERVO_CLOSED_DEG);
 
-  // 4. Connect to WiFi
-  lcd.setCursor(0, 1);
-  lcd.print("Connecting WiFi...");
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+  entranceGate.servo  = &entranceServo;
+  entranceGate.holdMs = ENTRANCE_OPEN_MS;
+  exitGate.servo      = &exitServo;
+  exitGate.holdMs     = EXIT_OPEN_MS;
+
+  // -- WiFi --
+  lcd.setCursor(0, 2);
+  lcd.print("Connecting WiFi...  ");
+  Serial.printf("[WiFi] Connecting to %s\n", WIFI_SSID);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  unsigned long t0 = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000) {
+    delay(300);
+    Serial.print('.');
   }
-  
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("WiFi Connected!");
-  lcd.setCursor(0, 1);
-  lcd.print(WiFi.localIP());
-  delay(2000);
-  lcd.clear();
-}
+  Serial.println();
 
-// ==========================================
-// MAIN LOOP
-// ==========================================
-void loop() {
   if (WiFi.status() == WL_CONNECTED) {
-    // 1. Fetch web states and update LEDs/LCD
-    fetchStatusFromServer();
-
-    // 2. Read physical IR sensors and tell server if anything changed
-    checkSensorsAndUpdateServer();
+    Serial.print("[WiFi] IP: ");
+    Serial.println(WiFi.localIP());
+    lcd.setCursor(0, 2);
+    lcd.print("WiFi OK             ");
+    lcd.setCursor(0, 3);
+    lcd.print(WiFi.localIP());
+    delay(1500);
   } else {
-    Serial.println("Reconnecting to WiFi...");
-    WiFi.reconnect();
+    Serial.println("[WiFi] FAILED — running offline");
+    lcd.setCursor(0, 2);
+    lcd.print("WiFi: FAILED        ");
+    lcd.setCursor(0, 3);
+    lcd.print("Running offline     ");
+    delay(1500);
   }
 
-  // Poll every 3 seconds to avoid overloading the Django development server
-  delay(3000); 
+  // -- Launch HTTP task on Core 0 --
+  xTaskCreatePinnedToCore(
+    httpTask,     // task function
+    "httpTask",   // name
+    8192,         // stack size (bytes)
+    NULL,         // parameter
+    1,            // priority
+    NULL,         // task handle
+    0             // Core 0
+  );
+  Serial.println("[Boot] HTTP task launched on Core 0");
+
+  // Show initial dashboard
+  lcd.clear();
+  updateLCD();
+  updateLcdRow3();
+  Serial.println("[Boot] Ready! Sensors on Core 1, HTTP on Core 0");
 }
 
-// ==========================================
-// FUNCTIONS
-// ==========================================
+// =============================================================================
+//  MAIN LOOP — Core 1 ONLY
+//  Runs every ~10ms. ZERO network calls. Instant sensor response.
+// =============================================================================
+void loop() {
+  unsigned long now = millis();
 
-void fetchStatusFromServer() {
-  HTTPClient http;
-  String url = String(serverBaseUrl) + "/api/v1/slots/";
-  http.begin(url);
-  
-  int httpResponseCode = http.GET();
-  if (httpResponseCode == 200) {
-    String payload = http.getString();
-    
-    // Parse JSON
-    DynamicJsonDocument doc(2048); 
-    DeserializationError error = deserializeJson(doc, payload);
-    
-    if (!error) {
-       int availableCount = 0;
-       int occupiedCount = 0;
-       int reservedCount = 0;
+  // ── 1. SLOT SENSORS (instant digitalRead) ─────────────────────────────
+  bool sensorChanged = readSlotSensors();
 
-       JsonArray results = doc["results"].as<JsonArray>();
-       for (JsonObject slot : results) {
-          int id = slot["id"];
-          String status = slot["status"].as<String>();
-          
-          if (status == "free") availableCount++;
-          else if (status == "occupied") occupiedCount++;
-          else if (status == "reserved") reservedCount++;
+  // ── 2. GATE SENSORS (instant digitalRead) ─────────────────────────────
+  readGateSensors();
 
-          // Match Django DB ID to our Physical LEDs
-          for (int idx = 0; idx < numSlots; idx++) {
-            if (dbSlotIds[idx] == id) {
-              if (status == "reserved" || status == "occupied") {
-                digitalWrite(ledPins[idx], HIGH); // Turn ON LED
-              } else {
-                digitalWrite(ledPins[idx], LOW);  // Turn OFF LED
-              }
-            }
-          }
-       }
+  // ── 3. GATE CLOSE TIMERS ──────────────────────────────────────────────
+  tickGate(entranceGate, "ENTRANCE");
+  tickGate(exitGate,     "EXIT");
 
-       // Update LCD panel
-       lcd.setCursor(0, 0);
-       lcd.print("--- PARKING INFO ---");
-       lcd.setCursor(0, 1);
-       lcd.printf("Free:%d  Rsvd:%d     ", availableCount, reservedCount);
-       lcd.setCursor(0, 2);
-       lcd.printf("Occupied:%d         ", occupiedCount);
-       lcd.setCursor(0, 3);
-       lcd.print("System: ONLINE      ");
-       
-    } else {
-      Serial.print("Deserialize JSON failed: ");
-      Serial.println(error.f_str());
-    }
-  } else {
-    Serial.printf("Failed fetching status. HTTP Code: %d\n", httpResponseCode);
+  // ── 4. LCD REFRESH (every 300ms OR immediately on sensor change) ──────
+  if (sensorChanged || (now - lastLcdRefreshMs >= LCD_REFRESH_MS)) {
+    lastLcdRefreshMs = now;
+    updateLCD();
   }
-  
-  http.end();
-}
 
-void checkSensorsAndUpdateServer() {
-  for (int i = 0; i < numSlots; i++) {
-    // Assuming LM393 IR module outputs LOW when an obstacle (car) is present
-    bool isOccupied = (digitalRead(irPins[i]) == LOW);
-    
-    // Check if the physical state differs from what was last recorded
-    if (isOccupied != previousOccupancy[i]) {
-      previousOccupancy[i] = isOccupied;
-      String newStatus = isOccupied ? "occupied" : "free";
-      
-      Serial.printf("Slot %d physically changed. Updating to %s\n", dbSlotIds[i], newStatus.c_str());
-      updateSlotStatusOnWeb(dbSlotIds[i], newStatus);
-    }
-  }
-}
-
-void updateSlotStatusOnWeb(int slotId, String newStatus) {
-  HTTPClient http;
-  String url = String(serverBaseUrl) + "/api/v1/slots/" + String(slotId) + "/status/";
-  http.begin(url);
-  http.addHeader("Content-Type", "application/json");
-
-  // Send PATCH request with {"status": "occupied"} 
-  String jsonPayload = "{\"status\": \"" + newStatus + "\"}";
-  int httpResponseCode = http.PATCH(jsonPayload);
-
-  if (httpResponseCode == 200 || httpResponseCode == 201) {
-    Serial.println(" >> Website successfully updated!");
-  } else {
-    Serial.printf(" >> Failed to update website. Code: %d\n", httpResponseCode);
-  }
-  http.end();
-}
-
-// Function you can trigger via RFID/Keypad or Admin API later
-void openEntranceGate() {
-  lcd.setCursor(0, 3);
-  lcd.print("Gate: OPEN          ");
-  entranceServo.write(90); // Lift barrier
-  delay(5000); // Keep open for 5 seconds
-  entranceServo.write(0); // Close barrier
-  lcd.setCursor(0, 3);
-  lcd.print("Gate: CLOSED        ");
+  // No network calls here — Core 0 handles all HTTP
+  delay(10);
 }
