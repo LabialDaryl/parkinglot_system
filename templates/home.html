@@ -6,37 +6,47 @@
 <div class="row align-items-center mb-5">
     <div class="col-lg-6 mb-4 mb-lg-0">
         <h1 class="display-4 fw-bold mb-3">Find your perfect<br><span class="text-primary">Parking Spot</span></h1>
-        <p class="lead text-muted mb-4">Open-access parking reservation system. Book a slot, get your 10-minute pass, and park hassle-free.</p>
+        <p class="lead text-muted mb-4">Open-access parking reservation system. Book a slot, get your pass, and park hassle-free.</p>
         <a href="{% url 'select_slot' %}" class="btn btn-primary px-5 py-3 fs-3 fw-bold rounded-pill shadow mt-3">Book Now</a>
     </div>
     <div class="col-lg-6">
         <div class="glass-panel p-4 text-center">
+            <!-- LIVE indicator -->
+            <div class="d-flex justify-content-end align-items-center mb-3">
+                <span id="live-badge" class="badge d-flex align-items-center gap-1 px-2 py-1"
+                      style="background:rgba(52,211,153,0.12);border:1px solid rgba(52,211,153,0.3);color:#34d399;font-size:0.72rem;letter-spacing:.04em;">
+                    <span id="live-dot" style="width:7px;height:7px;border-radius:50%;background:#34d399;display:inline-block;transition:background 0.3s;"></span>
+                    LIVE
+                </span>
+            </div>
             <div class="row g-4">
                 <div class="col-6">
-                    <div class="p-3 rounded" style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2);">
+                    <div class="p-3 rounded" style="background:rgba(16,185,129,0.1);border:1px solid rgba(16,185,129,0.2);">
                         <div class="fs-1 mb-2">🟢</div>
-                        <h3 class="fw-bold mb-0 {% if free > 0 %}text-success{% else %}text-muted{% endif %}">{{ free }}</h3>
+                        <h3 class="fw-bold mb-0" id="stat-free"
+                            data-color-positive="text-success"
+                            data-color-zero="text-muted">{{ free }}</h3>
                         <small class="text-muted">Available</small>
                     </div>
                 </div>
                 <div class="col-6">
-                    <div class="p-3 rounded" style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2);">
+                    <div class="p-3 rounded" style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.2);">
                         <div class="fs-1 mb-2">🟡</div>
-                        <h3 class="fw-bold text-warning mb-0">{{ reserved }}</h3>
+                        <h3 class="fw-bold text-warning mb-0" id="stat-reserved">{{ reserved }}</h3>
                         <small class="text-muted">Reserved</small>
                     </div>
                 </div>
                 <div class="col-6">
-                    <div class="p-3 rounded" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2);">
+                    <div class="p-3 rounded" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);">
                         <div class="fs-1 mb-2">🔴</div>
-                        <h3 class="fw-bold text-danger mb-0">{{ occupied }}</h3>
+                        <h3 class="fw-bold text-danger mb-0" id="stat-occupied">{{ occupied }}</h3>
                         <small class="text-muted">Occupied</small>
                     </div>
                 </div>
                 <div class="col-6">
-                    <div class="p-3 rounded" style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1);">
+                    <div class="p-3 rounded" style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);">
                         <div class="fs-1 mb-2">🅿️</div>
-                        <h3 class="fw-bold mb-0">{{ total }}</h3>
+                        <h3 class="fw-bold mb-0" id="stat-total">{{ total }}</h3>
                         <small class="text-muted">Total Slots</small>
                     </div>
                 </div>
@@ -60,7 +70,7 @@
             <div class="card-body">
                 <div class="fs-1 mb-3">⏳</div>
                 <h4 class="fw-bold">2. Quick Reserve</h4>
-                <p class="text-muted">Get a unique 5-character code valid for 10 minutes to reach your slot.</p>
+                <p class="text-muted">Get a unique 5-character code valid for 5–15 minutes to reach your slot.</p>
             </div>
         </div>
     </div>
@@ -68,10 +78,78 @@
         <div class="card h-100 border-0 bg-transparent text-center">
             <div class="card-body">
                 <div class="fs-1 mb-3">🚗</div>
-                <h4 class="fw-bold">3. Park & Go</h4>
+                <h4 class="fw-bold">3. Park &amp; Go</h4>
                 <p class="text-muted">Present your code at the gate via ESP32 scanner and secure your spot.</p>
             </div>
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+/**
+ * Live Slot Stats Polling — Home Page
+ *
+ * Polls GET /api/v1/slots/stats/ every 4 s and updates the four stat
+ * counters in-place without a page reload.
+ *
+ * Fix log:
+ *  - All DOM lookups are inside DOMContentLoaded to guarantee elements exist.
+ *  - flashLive() has a null guard on liveDot.
+ *  - stat-free colour toggle uses classList instead of overwriting className,
+ *    so no Bootstrap classes are accidentally removed.
+ *  - updateStat skips the update when the parsed value hasn't changed.
+ */
+document.addEventListener('DOMContentLoaded', function () {
+    const POLL_MS   = 4000;
+    const liveDot   = document.getElementById('live-dot');
+    const statFree  = document.getElementById('stat-free');
+    const statRes   = document.getElementById('stat-reserved');
+    const statOcc   = document.getElementById('stat-occupied');
+    const statTotal = document.getElementById('stat-total');
+
+    function flashLive(ok) {
+        if (!liveDot) return;
+        liveDot.style.background = ok ? '#fff' : '#ef4444';
+        if (ok) setTimeout(() => { liveDot.style.background = '#34d399'; }, 300);
+    }
+
+    function updateStat(el, newVal) {
+        if (!el) return;
+        const current = parseInt(el.textContent, 10);
+        if (current === newVal) return;           // no change — skip DOM write
+        el.textContent = newVal;
+        el.style.transition = 'color 0.3s';
+        el.style.color = '#60a5fa';
+        setTimeout(() => { el.style.color = ''; }, 600);
+    }
+
+    function poll() {
+        fetch('/api/v1/slots/stats/', { cache: 'no-store' })
+            .then(r => {
+                if (!r.ok) throw new Error(r.status);
+                return r.json();
+            })
+            .then(data => {
+                const c = data.counts;
+                updateStat(statFree,  c.free);
+                updateStat(statRes,   c.reserved);
+                updateStat(statOcc,   c.occupied);
+                updateStat(statTotal, c.total);
+
+                // Toggle colour on free counter: green when >0, muted when 0
+                if (statFree) {
+                    statFree.classList.toggle('text-success', c.free > 0);
+                    statFree.classList.toggle('text-muted',   c.free === 0);
+                }
+                flashLive(true);
+            })
+            .catch(() => flashLive(false));
+    }
+
+    poll();
+    setInterval(poll, POLL_MS);
+});
+</script>
 {% endblock %}

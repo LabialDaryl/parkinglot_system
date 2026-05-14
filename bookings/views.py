@@ -209,8 +209,8 @@ def admin_dashboard_view(request):
     expired_today = reservations.filter(status='expired', reserved_at__date=today).count()
     checked_in_today = reservations.filter(status='checked_in', reserved_at__date=today).count()
 
-    # Recent reservations
-    recent_reservations = reservations[:20]
+    # Recent reservations (most recent first)
+    recent_reservations = reservations.order_by('-reserved_at')[:20]
 
     context = {
         'total_slots': total_slots,
@@ -329,3 +329,23 @@ def admin_reports_view(request):
         'turnover_rate': turnover_rate,
     }
     return render(request, 'admin_dashboard/reports.html', context)
+@admin_required
+def admin_check_in_view(request, slot_id):
+    """Staff manually accepts payment and authorizes the car to approach the slot."""
+    slot = get_object_or_404(ParkingSlot, id=slot_id)
+
+    # Find the active reservation for this slot
+    reservation = slot.reservations.filter(status='active').first()
+
+    if reservation:
+        reservation.status = 'accepted'
+        reservation.checked_in_at = timezone.now()
+        reservation.save()
+        messages.success(request, f'Reservation {reservation.booking_code} payment accepted for slot {slot.slot_number}. The slot remains reserved until the sensor detects the vehicle.')
+    else:
+        if slot.status == 'reserved':
+            messages.success(request, f'Slot {slot.slot_number} is already reserved and waiting for the vehicle.')
+        else:
+            messages.warning(request, f'No active reservation found for slot {slot.slot_number}.')
+
+    return redirect('admin_slot_management')

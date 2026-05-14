@@ -20,10 +20,12 @@ urlpatterns = [
     path('admin-panel/logout/', views.admin_logout_view, name='admin_logout'),
     path('admin-panel/', views.admin_dashboard_view, name='admin_dashboard'),
     path('admin-panel/slots/', views.admin_slot_management_view, name='admin_slot_management'),
+    path('admin-panel/check-in/<int:slot_id>/', views.admin_check_in_view, name='admin_check_in'),
     path('admin-panel/reports/', views.admin_reports_view, name='admin_reports'),
 
     # ── REST API (ESP32) ───────────────────────────────────────────────
     path('api/v1/slots/', api_views.api_slot_list, name='api_slot_list'),
+    path('api/v1/slots/stats/', api_views.api_slot_stats, name='api_slot_stats'),
     path('api/v1/slots/bulk-update/', api_views.api_bulk_update_slots, name='api_bulk_update_slots'),
     path('api/v1/slots/<int:slot_id>/', api_views.api_slot_detail, name='api_slot_detail'),
     path('api/v1/slots/<int:slot_id>/status/', api_views.api_slot_update_status, name='api_slot_update_status'),

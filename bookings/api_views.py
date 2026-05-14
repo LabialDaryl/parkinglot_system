@@ -82,7 +82,7 @@ def api_slot_update_status(request, slot_id):
 
     # Smart transition: reserved → occupied means the car arrived
     if old_status == 'reserved' and new_status == 'occupied':
-        active_reservation = slot.reservations.filter(status='active').first()
+        active_reservation = slot.reservations.filter(status__in=['active', 'accepted']).first()
         if active_reservation:
             active_reservation.status = 'checked_in'
             active_reservation.checked_in_at = timezone.now()
@@ -149,7 +149,7 @@ def api_bulk_update_slots(request):
 
         # Smart transition: reserved → occupied = auto check-in
         if old_status == 'reserved' and new_status == 'occupied':
-            active_res = slot.reservations.filter(status='active').first()
+            active_res = slot.reservations.filter(status__in=['active', 'accepted']).first()
             if active_res:
                 active_res.status = 'checked_in'
                 active_res.checked_in_at = timezone.now()
@@ -205,7 +205,7 @@ def api_validate_booking(request):
             'error': 'Already checked in',
         }, status=status.HTTP_409_CONFLICT)
 
-    if reservation.status != 'active':
+    if reservation.status not in ['active', 'accepted']:
         return Response({
             'valid': False,
             'error': f'Reservation status is {reservation.status}',
@@ -240,3 +240,58 @@ def api_reservation_detail(request, booking_code):
 
     serializer = ReservationSerializer(reservation)
     return Response(serializer.data)
+
+
+@api_view(['GET'])
+def api_slot_stats(request):
+    """
+    GET /api/v1/slots/stats/
+    Return aggregated slot counts AND the full slot list in one response.
+
+    Consumed by browser pages (Home, Select Slot, Admin Dashboard) via
+    JavaScript polling every 4 seconds to keep the UI in sync with the
+    physical state reported by the ESP32 sensors — without a full page reload.
+
+    Single DB query + Python Counter instead of 5 separate filter().count()
+    calls — minimises database round-trips on every browser poll.
+
+    Response shape:
+    {
+        "counts": {
+            "total": 8, "free": 5, "reserved": 1, "occupied": 2, "maintenance": 0
+        },
+        "occupancy_rate": 37.5,
+        "slots": [ { "id": 1, "slot_number": "P-1", "location": "...",
+                     "status": "free", "status_display": "Free" }, ... ]
+    }
+    """
+    from collections import Counter
+
+    # One DB round-trip: fetch all slots and count statuses in Python.
+    slots_qs   = ParkingSlot.objects.all()
+    slots_list = list(slots_qs)           # evaluate queryset once
+    counts     = Counter(s.status for s in slots_list)
+
+    total       = len(slots_list)
+    free        = counts.get('free', 0)
+    reserved    = counts.get('reserved', 0)
+    occupied    = counts.get('occupied', 0)
+    maintenance = counts.get('maintenance', 0)
+
+    occupancy_rate = round(
+        (occupied + reserved) / total * 100, 1
+    ) if total > 0 else 0
+
+    serializer = ParkingSlotSerializer(slots_list, many=True)
+
+    return Response({
+        'counts': {
+            'total':       total,
+            'free':        free,
+            'reserved':    reserved,
+            'occupied':    occupied,
+            'maintenance': maintenance,
+        },
+        'occupancy_rate': occupancy_rate,
+        'slots': serializer.data,
+    })

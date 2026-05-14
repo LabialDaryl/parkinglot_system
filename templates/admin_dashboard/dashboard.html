@@ -3,9 +3,18 @@
 {% block title %}Admin Dashboard - ParkSmart{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h2 class="fw-bold">Overview Dashboard</h2>
-    <div>
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div class="d-flex align-items-center gap-3">
+        <h2 class="fw-bold mb-0">Overview Dashboard</h2>
+        <!-- LIVE indicator -->
+        <span id="live-badge" class="badge d-flex align-items-center gap-1 px-2 py-1"
+              style="background:rgba(52,211,153,0.12);border:1px solid rgba(52,211,153,0.3);color:#34d399;font-size:0.72rem;letter-spacing:.04em;">
+            <span id="live-dot" style="width:7px;height:7px;border-radius:50%;background:#34d399;display:inline-block;transition:background 0.3s;"></span>
+            LIVE
+        </span>
+    </div>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+        <span id="last-updated" class="text-muted small me-2"></span>
         <a href="{% url 'admin_dashboard' %}" class="btn btn-primary btn-sm me-2">Dashboard</a>
         <a href="{% url 'admin_slot_management' %}" class="btn btn-outline-light btn-sm me-2">Manage Slots</a>
         <a href="{% url 'admin_reports' %}" class="btn btn-outline-light btn-sm">Reports</a>
@@ -17,7 +26,9 @@
     <div class="col-md-3">
         <div class="glass-panel p-4 h-100">
             <p class="text-muted small text-uppercase mb-1">Occupancy Rate</p>
-            <h3 class="display-6 fw-bold mb-0 {% if occupancy_rate > 80 %}text-danger{% elif occupancy_rate < 30 %}text-success{% else %}text-warning{% endif %}">
+            <h3 class="display-6 fw-bold mb-0 {% if occupancy_rate > 80 %}text-danger{% elif occupancy_rate < 30 %}text-success{% else %}text-warning{% endif %}" 
+                id="stat-occupancy-rate"
+                data-current="{{ occupancy_rate }}">
                 {{ occupancy_rate }}%
             </h3>
         </div>
@@ -25,23 +36,23 @@
     <div class="col-md-3">
         <div class="glass-panel p-4 h-100">
             <p class="text-muted small text-uppercase mb-1">Total Slots</p>
-            <h3 class="display-6 fw-bold mb-0">{{ total_slots }}</h3>
+            <h3 class="display-6 fw-bold mb-0" id="stat-total">{{ total_slots }}</h3>
             <div class="d-flex justify-content-between mt-2 small">
-                <span class="text-success">Free: {{ free_slots }}</span>
-                <span class="text-secondary">Maint: {{ maintenance_slots }}</span>
+                <span class="text-success">Free: <span id="stat-free">{{ free_slots }}</span></span>
+                <span class="text-secondary">Maint: <span id="stat-maintenance">{{ maintenance_slots }}</span></span>
             </div>
         </div>
     </div>
     <div class="col-md-3">
         <div class="glass-panel p-4 h-100 border-warning border-opacity-25">
             <p class="text-muted small text-uppercase mb-1">Active / Reserved</p>
-            <h3 class="display-6 fw-bold text-warning mb-0">{{ reserved_slots }}</h3>
+            <h3 class="display-6 fw-bold text-warning mb-0" id="stat-reserved">{{ reserved_slots }}</h3>
         </div>
     </div>
     <div class="col-md-3">
         <div class="glass-panel p-4 h-100 border-danger border-opacity-25">
             <p class="text-muted small text-uppercase mb-1">Currently Occupied</p>
-            <h3 class="display-6 fw-bold text-danger mb-0">{{ occupied_slots }}</h3>
+            <h3 class="display-6 fw-bold text-danger mb-0" id="stat-occupied">{{ occupied_slots }}</h3>
         </div>
     </div>
 </div>
@@ -85,7 +96,7 @@
                         </tr>
                         {% empty %}
                         <tr>
-                            <td colspan="5" class="text-center text-muted py-4">No recent reservations found.</td>
+                            <td colspan="6" class="text-center text-muted py-4">No recent reservations found.</td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -98,27 +109,103 @@
 
 {% block extra_js %}
 <script>
-    // Minimal timer for the list view
-    document.addEventListener("DOMContentLoaded", function() {
-        const timers = document.querySelectorAll('.countdown-minimal');
+/**
+ * Admin Dashboard — Live Stat Polling + Reservation Countdown
+ */
+document.addEventListener('DOMContentLoaded', function () {
+
+    // ── 1. STAT POLLING ─────────────────────────────────────────────────────
+    const POLL_MS       = 4000;
+    const liveDot       = document.getElementById('live-dot');
+    const lastUpdatedEl = document.getElementById('last-updated');
+
+    function flashLive(ok) {
+        if (!liveDot) return;
+        liveDot.style.background = ok ? '#fff' : '#ef4444';
+        if (ok) setTimeout(() => { liveDot.style.background = '#34d399'; }, 300);
+    }
+
+    function setLastUpdated() {
+        if (!lastUpdatedEl) return;
+        const now = new Date();
+        lastUpdatedEl.textContent = 'Synced '
+            + String(now.getHours()).padStart(2, '0') + ':'
+            + String(now.getMinutes()).padStart(2, '0') + ':'
+            + String(now.getSeconds()).padStart(2, '0');
+    }
+
+    function updateEl(id, newVal) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (parseInt(el.textContent, 10) === newVal) return;
+        el.textContent = newVal;
+        el.style.transition = 'color 0.3s';
+        el.style.color = '#60a5fa';
+        setTimeout(() => { el.style.color = ''; }, 700);
+    }
+
+    function updateOccupancyRate(rate) {
+        const el = document.getElementById('stat-occupancy-rate');
+        if (!el) return;
+        const current = parseFloat(el.dataset.current);
+        if (current === rate) return;
+        el.dataset.current = rate;
+        el.textContent = rate + '%';
         
-        setInterval(() => {
-            timers.forEach(el => {
-                let sec = parseInt(el.getAttribute('data-seconds'), 10);
-                if (sec > 0) {
-                    sec--;
-                    el.setAttribute('data-seconds', sec);
-                    const m = Math.floor(sec / 60);
-                    const s = sec % 60;
-                    el.textContent = `${m}:${s.toString().padStart(2, '0')}`;
-                    if (sec < 60) el.classList.add('text-danger');
-                } else if (sec === 0) {
-                    el.textContent = "0:00";
-                    el.classList.add('text-danger');
-                    el.setAttribute('data-seconds', -1);
-                }
-            });
-        }, 1000);
-    });
+        el.classList.remove('text-danger', 'text-success', 'text-warning');
+        if (rate > 80) {
+            el.classList.add('text-danger');
+        } else if (rate < 30) {
+            el.classList.add('text-success');
+        } else {
+            el.classList.add('text-warning');
+        }
+    }
+
+    function poll() {
+        fetch('/api/v1/slots/stats/', { cache: 'no-store' })
+            .then(r => {
+                if (!r.ok) throw new Error(r.status);
+                return r.json();
+            })
+            .then(data => {
+                const c = data.counts;
+                updateOccupancyRate(data.occupancy_rate);
+                updateEl('stat-total',       c.total);
+                updateEl('stat-free',        c.free);
+                updateEl('stat-maintenance', c.maintenance);
+                updateEl('stat-reserved',    c.reserved);
+                updateEl('stat-occupied',    c.occupied);
+                flashLive(true);
+                setLastUpdated();
+            })
+            .catch(() => flashLive(false));
+    }
+
+    poll();
+    setInterval(poll, POLL_MS);
+
+    // ── 2. COUNTDOWN TIMER ──────────────────────────────────────────────────
+    const timers = document.querySelectorAll('.countdown-minimal');
+
+    setInterval(() => {
+        timers.forEach(el => {
+            let sec = parseInt(el.dataset.seconds, 10);
+            if (isNaN(sec) || sec < 0) return;
+
+            if (sec === 0) {
+                el.textContent = '0:00';
+                el.classList.add('text-danger');
+                el.dataset.seconds = -1;
+                return;
+            }
+
+            sec--;
+            el.dataset.seconds = sec;
+            el.textContent = Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+            if (sec < 60) el.classList.add('text-danger');
+        });
+    }, 1000);
+});
 </script>
 {% endblock %}

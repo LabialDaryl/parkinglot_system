@@ -51,10 +51,10 @@ class ReservationForm(forms.Form):
     def clean_plate_number(self):
         plate_number = self.cleaned_data.get('plate_number')
         if plate_number:
-            # Check if this plate number already has an active or checked_in reservation
+            # Check if this plate number already has an active, accepted or checked_in reservation
             active_reservation = Reservation.objects.filter(
                 plate_number__iexact=plate_number,
-                status__in=['active', 'checked_in']
+                status__in=['active', 'accepted', 'checked_in']
             ).first()
             
             if active_reservation:

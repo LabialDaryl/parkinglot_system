@@ -15,6 +15,24 @@
 //  Exit IR sensor        : Pin 19  (LOW when car detected)
 //  8× Slot IR sensors    : Pins 34,35,36,39,32,33,27,14  (LOW = occupied)
 //
+//  LCD Display Format (20×4):
+//  ─────────────────────────────────────────────────────────────────────────
+//  Row 0: "PARKING  [ONLINE ]"   or "PARKING  [OFFLINE]" (network status)
+//  Row 1: "Free:6   Rsvd:1"                               (available slots)
+//  Row 2: "Occ:1  S:OOXOOOO"                            (occupancy map: O=free, X=occupied)
+//  Row 3: "IN:OPEN  OUT:CLOSED"                           (gate status)
+//
+//  Data Synchronization (when ONLINE):
+//  ─────────────────────────────────────────────────────────────────────────
+//  1. Core 1 (loop): Reads all 8 IR sensors → updates currentSlotOccupied[]
+//  2. Core 1: Updates LCD immediately with sensor data every 300ms or on change
+//  3. Core 0 (httpTask): Every 5 seconds:
+//     a. Fetches latest slot status from server → updates webReservedCount
+//     b. If sensors changed, bulk-syncs to server → server updates database
+//     c. Fetches updated server state back
+//  4. LCD displays ONLINE status when server responds successfully
+//  5. Website polls /api/v1/slots/stats/ every 4 seconds → shows same data
+//
 //  Required Libraries (install via Library Manager)
 //  ─────────────────────────────────────────────────────────────────────────────
 //  ArduinoJson      >= 6.x
@@ -187,34 +205,42 @@ void updateLcdRow3() {
 }
 
 void updateLCD() {
+  // ── Count occupied slots from physical sensors ──
   int occupied = 0;
   char slotMap[NUM_SLOTS + 1];
+  
   for (int i = 0; i < NUM_SLOTS; i++) {
-    bool occ = currentSlotOccupied[i];
+    // Always read fresh from the volatile array (sensors update this in real-time)
+    bool occ = (bool)currentSlotOccupied[i];
     if (occ) occupied++;
     slotMap[i] = occ ? 'X' : 'O';
   }
   slotMap[NUM_SLOTS] = '\0';
 
-  int reserved = webReservedCount;
+  // ── Calculate free slots (total - occupied - reserved) ──
+  int reserved = (int)webReservedCount;  // From server
   int free = NUM_SLOTS - occupied - reserved;
   if (free < 0) free = 0;
 
   char buf[21];
 
-  // Row 0
+  // ── Row 0: System Status ──
+  // Shows "PARKING  [ONLINE ]" or "PARKING  [OFFLINE]"
   snprintf(buf, 21, "PARKING  [%s]", webOnline ? "ONLINE " : "OFFLINE");
   lcdPrintPadded(0, 0, buf, 20);
 
-  // Row 1
+  // ── Row 1: Availability ──
+  // Shows "Free:XX   Rsvd:XX"
   snprintf(buf, 21, "Free:%-2d  Rsvd:%-2d", free, reserved);
   lcdPrintPadded(0, 1, buf, 20);
 
-  // Row 2
+  // ── Row 2: Occupancy Map ──
+  // Shows "Occ:XX S:XXXXXXXX" where X=occupied, O=free
   snprintf(buf, 21, "Occ:%-2d S:%s", occupied, slotMap);
   lcdPrintPadded(0, 2, buf, 20);
 
-  // Row 3 managed by updateLcdRow3() — not touched here
+  // ── Row 3: Gate Status (managed by updateLcdRow3) ──
+  // Already updated separately in gate state machine
 }
 
 // =============================================================================
@@ -224,15 +250,28 @@ void updateLCD() {
 bool readSlotSensors() {
   bool changed = false;
   for (int i = 0; i < NUM_SLOTS; i++) {
+    // Read physical pin state: LOW = occupied, HIGH = free
     bool occ = (digitalRead(IR_SLOT_PINS[i]) == LOW);
+    
+    // Check if state differs from last known state
     if (occ != (bool)currentSlotOccupied[i]) {
       currentSlotOccupied[i] = occ;
       changed = true;
-      Serial.printf("[IR] Slot %d -> %s\n", DB_SLOT_IDS[i],
-                    occ ? "OCCUPIED" : "FREE");
+      
+      // Log the change
+      Serial.printf("[Sensor] Slot %d -> %s (Physical: %s)\n", 
+                    DB_SLOT_IDS[i],
+                    occ ? "OCCUPIED" : "FREE",
+                    occ ? "Car detected" : "Slot empty");
     }
   }
-  if (changed) needsSync = true;
+  
+  // If any sensor changed, mark for server sync
+  if (changed) {
+    needsSync = true;
+    Serial.println("[Sensor] Change detected - will sync to server");
+  }
+  
   return changed;
 }
 
@@ -266,7 +305,7 @@ void fetchStatusFromServer() {
 
   int code = http.GET();
   if (code != 200) {
-    Serial.printf("[HTTP] GET -> %d\n", code);
+    Serial.printf("[Fetch] GET /api/v1/slots/ -> HTTP %d (OFFLINE)\n", code);
     webOnline = false;
     http.end();
     return;
@@ -279,11 +318,12 @@ void fetchStatusFromServer() {
   DynamicJsonDocument doc(4096);
   DeserializationError err = deserializeJson(doc, payload);
   if (err) {
-    Serial.printf("[JSON] Parse error: %s\n", err.f_str());
+    Serial.printf("[Fetch] JSON parse error: %s\n", err.f_str());
     return;
   }
 
   int cntReserved = 0;
+  int cntOccupied = 0;
   JsonArray slots;
   if (doc.containsKey("results"))
     slots = doc["results"].as<JsonArray>();
@@ -293,8 +333,11 @@ void fetchStatusFromServer() {
   for (JsonObject slot : slots) {
     int    id     = slot["id"]     | 0;
     String status = slot["status"] | "unknown";
+    
     if (status == "reserved") cntReserved++;
+    if (status == "occupied") cntOccupied++;
 
+    // Update server-known occupancy for comparison with physical sensors
     for (int i = 0; i < NUM_SLOTS; i++) {
       if (DB_SLOT_IDS[i] == id) {
         serverKnowsOccupied[i] = (status == "occupied");
@@ -303,7 +346,8 @@ void fetchStatusFromServer() {
   }
 
   webReservedCount = cntReserved;
-  Serial.printf("[Server] Rsvd:%d  ONLINE\n", cntReserved);
+  Serial.printf("[Fetch] ONLINE - Reserved:%d, Occupied:%d, Total:%d\n", 
+                cntReserved, cntOccupied, slots.size());
 }
 
 // Bulk-sync all changed slots in a SINGLE HTTP call
@@ -314,17 +358,23 @@ void bulkSyncToServer() {
   bool anyDiff = false;
 
   for (int i = 0; i < NUM_SLOTS; i++) {
-    bool physical = currentSlotOccupied[i];
-    bool serverKnows = serverKnowsOccupied[i];
+    bool physical = (bool)currentSlotOccupied[i];
+    bool serverKnows = (bool)serverKnowsOccupied[i];
+    
+    // If physical state differs from server's knowledge, sync it
     if (physical != serverKnows) {
       JsonObject entry = arr.createNestedObject();
       entry["id"]     = DB_SLOT_IDS[i];
       entry["status"] = physical ? "occupied" : "free";
       anyDiff = true;
+      Serial.printf("[Sync] Slot %d -> %s\n", DB_SLOT_IDS[i], physical ? "occupied" : "free");
     }
   }
 
-  if (!anyDiff) return;
+  if (!anyDiff) {
+    Serial.println("[Sync] All slots in sync with server");
+    return;
+  }
 
   WiFiClientSecure client = makeSecureClient();
   HTTPClient http;
@@ -340,18 +390,19 @@ void bulkSyncToServer() {
 
   int code = http.POST(body);
   if (code == 200) {
-    // Mark all synced
+    // Mark all synced after successful update
     for (int i = 0; i < NUM_SLOTS; i++) {
       serverKnowsOccupied[i] = currentSlotOccupied[i];
     }
-    Serial.println("[Server] Bulk sync OK");
+    Serial.println("[Sync] Bulk update successful - all slots synced");
   } else {
-    Serial.printf("[Server] Bulk sync FAIL(%d)\n", code);
+    Serial.printf("[Sync] Bulk update FAILED (HTTP %d) - will retry next cycle\n", code);
   }
   http.end();
 }
 
 // The FreeRTOS task function that runs on Core 0
+// Handles all network communication to keep it off the sensor-reading core
 void httpTask(void* parameter) {
   const unsigned long POLL_INTERVAL = 5000;  // 5 seconds between server polls
 
@@ -360,23 +411,27 @@ void httpTask(void* parameter) {
     vTaskDelay(500 / portTICK_PERIOD_MS);
   }
 
+  Serial.println("[HTTP] Core 0 task started - ready to sync with server");
+
   for (;;) {
     if (WiFi.status() == WL_CONNECTED) {
-      // 1. Fetch latest status from server
+      // ── 1. Fetch latest status from server ──
+      // This updates webReservedCount and serverKnowsOccupied[]
       fetchStatusFromServer();
 
-      // 2. If any sensors changed, bulk-sync to server
+      // ── 2. Sync any sensor-detected changes to server ──
+      // If a sensor detected a change since last poll, send it
       if (needsSync) {
         needsSync = false;
         bulkSyncToServer();
       }
     } else {
       webOnline = false;
-      Serial.println("[WiFi] Disconnected, retrying...");
+      Serial.println("[WiFi] Disconnected, attempting reconnect...");
       WiFi.reconnect();
     }
 
-    // Wait before next poll (this delay does NOT affect Core 1)
+    // Wait before next cycle (this delay does NOT affect Core 1 sensor reads)
     vTaskDelay(POLL_INTERVAL / portTICK_PERIOD_MS);
   }
 }
@@ -475,23 +530,31 @@ void setup() {
 
 // =============================================================================
 //  MAIN LOOP — Core 1 ONLY
-//  Runs every ~10ms. ZERO network calls. Instant sensor response.
+//  Runs every ~10ms. Handles sensor reads and LCD updates.
+//  ZERO network calls here — HTTP task runs on Core 0.
 // =============================================================================
 void loop() {
   unsigned long now = millis();
 
-  // ── 1. SLOT SENSORS (instant digitalRead) ─────────────────────────────
+  // ── 1. SLOT SENSORS (instant digitalRead, no blocking) ──────────────
+  // Returns true if any slot's occupancy changed since last read
   bool sensorChanged = readSlotSensors();
 
-  // ── 2. GATE SENSORS (debounced state machine) ─────────────────────────
+  // ── 2. GATE SENSORS (debounced state machine) ────────────────────
   readGateSensors();
 
-  // ── 4. LCD REFRESH (every 300ms OR immediately on sensor change) ──────
+  // ── 3. LCD REFRESH ───────────────────────────────────────────────
+  // Update immediately if:
+  //   - A sensor detected a change (occupancy updated)
+  //   - OR the refresh interval has elapsed (for online status / server updates)
   if (sensorChanged || (now - lastLcdRefreshMs >= LCD_REFRESH_MS)) {
     lastLcdRefreshMs = now;
     updateLCD();
+    // Note: updateLcdRow3() is called separately in gate state machine
   }
 
-  // No network calls here — Core 0 handles all HTTP
-  delay(10);
+  // ── 4. NO NETWORK CALLS HERE ──────────────────────────────────────
+  // All HTTP communication happens on Core 0 via the httpTask FreeRTOS thread
+  
+  delay(10);  // Yield back to scheduler every 10ms
 }

@@ -10,10 +10,14 @@
         <div class="fs-1 mb-3">✅</div>
         <h2 class="fw-bold mb-3">Reservation Confirmed!</h2>
         <p class="text-muted mb-4">Please present this code at the parking gate before the timer runs out.</p>
+        {% elif reservation.status == 'accepted' %}
+        <div class="fs-1 mb-3">🚗</div>
+        <h2 class="fw-bold text-success mb-3">Payment Accepted</h2>
+        <p class="text-muted mb-4">Thank you, take time to find your slot.</p>
         {% elif reservation.status == 'checked_in' %}
         <div class="fs-1 mb-3">🚗</div>
         <h2 class="fw-bold text-success mb-3">Checked In</h2>
-        <p class="text-muted mb-4">You have successfully checked in to your parking slot.</p>
+        <p class="text-muted mb-4">Your vehicle has arrived and is now occupying the slot.</p>
         {% else %}
         <div class="fs-1 mb-3">❌</div>
         <h2 class="fw-bold text-danger mb-3">Reservation Expired</h2>

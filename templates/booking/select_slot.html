@@ -3,21 +3,37 @@
 {% block title %}Select a Slot - ParkSmart{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h2 class="fw-bold">Select a Parking Slot</h2>
-    <div class="d-flex gap-3 text-sm">
-        <span class="d-flex align-items-center"><span style="color: var(--accent-green)" class="fs-4 me-1">■</span>
-            Free</span>
-        <span class="d-flex align-items-center"><span style="color: var(--accent-warning)" class="fs-4 me-1">■</span>
-            Reserved</span>
-        <span class="d-flex align-items-center"><span style="color: var(--accent-danger)" class="fs-4 me-1">■</span>
-            Occupied</span>
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div class="d-flex align-items-center gap-3">
+        <h2 class="fw-bold mb-0">Select a Parking Slot</h2>
+        <!-- LIVE indicator -->
+        <span id="live-badge" class="badge d-flex align-items-center gap-1 px-2 py-1"
+              style="background:rgba(52,211,153,0.12);border:1px solid rgba(52,211,153,0.3);color:#34d399;font-size:0.72rem;letter-spacing:.04em;">
+            <span id="live-dot" style="width:7px;height:7px;border-radius:50%;background:#34d399;display:inline-block;transition:background 0.3s;"></span>
+            LIVE
+        </span>
+    </div>
+    <div class="d-flex align-items-center gap-3 flex-wrap">
+        <div class="d-flex gap-3 text-sm">
+            <span class="d-flex align-items-center"><span style="color:var(--accent-green)" class="fs-4 me-1">■</span>Free</span>
+            <span class="d-flex align-items-center"><span style="color:var(--accent-warning)" class="fs-4 me-1">■</span>Reserved</span>
+            <span class="d-flex align-items-center"><span style="color:var(--accent-danger)" class="fs-4 me-1">■</span>Occupied</span>
+        </div>
+        <span id="last-updated" class="text-muted small" style="min-width:9rem;"></span>
     </div>
 </div>
 
-<div class="row g-4">
+<!-- slots-grid: each column carries data-* attributes so the JS poller
+     can update cards without re-fetching the page. The Django-resolved
+     book URL is stored in data-book-url to avoid hardcoding the path. -->
+<div class="row g-4" id="slots-grid">
     {% for slot in slots %}
-    <div class="col-12 col-sm-6 col-md-3">
+    <div class="col-12 col-sm-6 col-md-3"
+         id="slot-col-{{ slot.id }}"
+         data-slot-id="{{ slot.id }}"
+         data-slot-number="{{ slot.slot_number }}"
+         data-slot-location="{{ slot.location }}"
+         data-book-url="{% url 'reserve_slot' slot.id %}">
         {% if slot.status == 'free' %}
         <a href="{% url 'reserve_slot' slot.id %}" class="text-decoration-none">
             <div class="card slot-card status-{{ slot.status }} text-center p-4 p-md-5 h-100">
@@ -38,10 +54,121 @@
         </div>
         {% endif %}
     </div>
-{% empty %}
-<div class="col-12 text-center py-5">
-    <p class="text-muted mb-0">No parking slots configured yet.</p>
+    {% empty %}
+    <div class="col-12 text-center py-5">
+        <p class="text-muted mb-0">No parking slots configured yet.</p>
+    </div>
+    {% endfor %}
 </div>
-{% endfor %}
-</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+/**
+ * Live Slot Grid Polling — Select Slot Page
+ *
+ * Polls GET /api/v1/slots/stats/ every 4 s.
+ * For each slot in the API response, finds the matching DOM column via
+ * [data-slot-id] and re-renders only cards whose status has changed.
+ *
+ * Fix log vs. previous version:
+ *  - All DOM lookups moved inside DOMContentLoaded.
+ *  - Book URL read from data-book-url (set by Django {% verbatim %}{% url %}{% endverbatim %} at render time)
+ *    instead of hardcoded '/book/<id>/', so sub-path deployments work correctly.
+ *  - flashLive() merged into one function accepting a boolean success flag.
+ *  - Status change detection uses the stored dataset value instead of
+ *    inspecting classList (more reliable after innerHTML re-render).
+ */
+document.addEventListener('DOMContentLoaded', function () {
+    const POLL_MS       = 4000;
+    const liveDot       = document.getElementById('live-dot');
+    const lastUpdatedEl = document.getElementById('last-updated');
+
+    // Status → visual properties map (single source of truth for this page)
+    const STATUS_MAP = {
+        free:        { icon: '🟢', display: 'Free',        color: 'success',   cssClass: 'status-free' },
+        reserved:    { icon: '🟡', display: 'Reserved',    color: 'warning',   cssClass: 'status-reserved' },
+        occupied:    { icon: '🔴', display: 'Occupied',    color: 'danger',    cssClass: 'status-occupied' },
+        maintenance: { icon: '⚪', display: 'Maintenance', color: 'secondary', cssClass: 'status-maintenance' },
+    };
+
+    function flashLive(ok) {
+        if (!liveDot) return;
+        liveDot.style.background = ok ? '#fff' : '#ef4444';
+        if (ok) setTimeout(() => { liveDot.style.background = '#34d399'; }, 300);
+    }
+
+    function setLastUpdated() {
+        if (!lastUpdatedEl) return;
+        const now = new Date();
+        lastUpdatedEl.textContent = 'Updated '
+            + String(now.getHours()).padStart(2,'0') + ':'
+            + String(now.getMinutes()).padStart(2,'0') + ':'
+            + String(now.getSeconds()).padStart(2,'0');
+    }
+
+    /**
+     * Rebuild a slot column's inner HTML when its status changes.
+     * The column's outer <div class="col-..."> and data-* attributes
+     * are preserved so future polls can still locate and update it.
+     */
+    function renderSlotCol(col, slot, info) {
+        const bookUrl    = col.dataset.bookUrl;     // resolved by Django at page load
+        const slotNumber = col.dataset.slotNumber;
+        const slotLoc    = col.dataset.slotLocation;
+
+        const card = `
+            <div class="card slot-card ${info.cssClass} text-center p-4 p-md-5 h-100"
+                 style="transition:border-color 0.4s,opacity 0.4s;">
+                <div class="display-3 mb-3">${info.icon}</div>
+                <h2 class="fw-bold mb-2 ${slot.status === 'free' ? 'text-white' : 'text-muted'}">${slotNumber}</h2>
+                <p class="text-muted fs-5 mb-3">${slotLoc}</p>
+                <span class="badge bg-${info.color} bg-opacity-25 text-${info.color} rounded-pill border border-${info.color} fs-6 px-3 py-2">${info.display}</span>
+            </div>`;
+
+        if (slot.status === 'free') {
+            col.innerHTML = `<a href="${bookUrl}" class="text-decoration-none">${card}</a>`;
+        } else {
+            col.innerHTML = `<div class="opacity-75 h-100">${card}</div>`;
+        }
+        // Keep tracking the current status in dataset for next diff check
+        col.dataset.currentStatus = slot.status;
+    }
+
+    function poll() {
+        fetch('/api/v1/slots/stats/', { cache: 'no-store' })
+            .then(r => {
+                if (!r.ok) throw new Error(r.status);
+                return r.json();
+            })
+            .then(data => {
+                data.slots.forEach(slot => {
+                    const col = document.getElementById(`slot-col-${slot.id}`);
+                    if (!col) return;
+
+                    const info = STATUS_MAP[slot.status] || STATUS_MAP.maintenance;
+
+                    // Use dataset.currentStatus as the diff source (set on render).
+                    // Falls back to reading the CSS class on first poll.
+                    const knownStatus = col.dataset.currentStatus
+                        || (col.querySelector('.slot-card')
+                            ? [...col.querySelector('.slot-card').classList]
+                                  .find(c => c.startsWith('status-'))
+                                  ?.replace('status-', '')
+                            : null);
+
+                    if (knownStatus !== slot.status) {
+                        renderSlotCol(col, slot, info);
+                    }
+                });
+                flashLive(true);
+                setLastUpdated();
+            })
+            .catch(() => flashLive(false));
+    }
+
+    poll();
+    setInterval(poll, POLL_MS);
+});
+</script>
 {% endblock %}

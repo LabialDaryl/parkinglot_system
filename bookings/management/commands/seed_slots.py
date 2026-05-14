@@ -6,7 +6,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **kwargs):
         slots_to_create = [
-            {'slot_number': f'P-{i}', 'location': 'Main Parking Area'} for i in range(1, 9)
+            {'slot_number': f'P-{i}', 'location': 'Ground Floor'} for i in range(1, 9)
         ]
         
         created_count = 0

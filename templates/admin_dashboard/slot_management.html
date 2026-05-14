@@ -60,27 +60,43 @@
                                 </span>
                             </td>
                             <td class="text-end">
-                                <form method="post" class="d-inline">
-                                    {% csrf_token %}
-                                    <input type="hidden" name="slot_id" value="{{ slot.id }}">
-                                    
-                                    {% if slot.status == 'maintenance' %}
-                                        <input type="hidden" name="action" value="maintenance">
-                                        <button type="submit" class="btn btn-sm btn-outline-success">Enable</button>
-                                    {% elif slot.status == 'free' %}
-                                        <input type="hidden" name="action" value="maintenance">
-                                        <button type="submit" class="btn btn-sm btn-outline-warning">Disable (Maintenance)</button>
-                                    {% else %}
-                                        <button type="button" class="btn btn-sm btn-outline-secondary" disabled>In Use</button>
+                                <div class="d-flex justify-content-end align-items-center gap-2">
+                                    {% if slot.status == 'reserved' %}
+                                        {% if slot.has_accepted_reservation %}
+                                            <button type="button" class="btn btn-sm btn-warning fw-bold px-3 shadow-sm" disabled>
+                                                Accepted
+                                            </button>
+                                        {% else %}
+                                            <a href="{% url 'admin_check_in' slot.id %}" class="btn btn-sm btn-success fw-bold px-3 shadow-sm">
+                                                Accept Payment
+                                            </a>
+                                        {% endif %}
                                     {% endif %}
-                                </form>
-                                
-                                <form method="post" class="d-inline ms-1" onsubmit="return confirm('Delete slot {{ slot.slot_number }}? This cannot be undone.');">
-                                    {% csrf_token %}
-                                    <input type="hidden" name="slot_id" value="{{ slot.id }}">
-                                    <input type="hidden" name="action" value="delete">
-                                    <button type="submit" class="btn btn-sm btn-outline-danger" {% if slot.status in "reserved,occupied" %}disabled{% endif %}>🗑️</button>
-                                </form>
+
+                                    <form method="post" class="d-inline">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="slot_id" value="{{ slot.id }}">
+                                        
+                                        {% if slot.status == 'maintenance' %}
+                                            <input type="hidden" name="action" value="maintenance">
+                                            <button type="submit" class="btn btn-sm btn-outline-success">Enable</button>
+                                        {% elif slot.status == 'free' %}
+                                            <input type="hidden" name="action" value="maintenance">
+                                            <button type="submit" class="btn btn-sm btn-outline-warning">Maintenance</button>
+                                        {% else %}
+                                            <span class="badge bg-secondary bg-opacity-10 text-muted border border-secondary border-opacity-25 py-2 px-3 small">
+                                                {{ slot.get_status_display }}
+                                            </span>
+                                        {% endif %}
+                                    </form>
+                                    
+                                    <form method="post" class="d-inline" onsubmit="return confirm('Delete slot {{ slot.slot_number }}?');">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="slot_id" value="{{ slot.id }}">
+                                        <input type="hidden" name="action" value="delete">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger" {% if slot.status != 'free' and slot.status != 'maintenance' %}disabled{% endif %}>🗑️</button>
+                                    </form>
+                                </div>
                             </td>
                         </tr>
                         {% empty %}

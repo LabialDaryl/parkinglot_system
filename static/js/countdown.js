@@ -15,7 +15,7 @@ document.addEventListener("DOMContentLoaded", function() {
         fetch(`/status/${bookingCode}/`)
             .then(res => res.json())
             .then(data => {
-                if (data.status === 'checked_in' || data.is_expired) {
+                if (data.status === 'checked_in' || data.status === 'accepted' || data.is_expired) {
                     window.location.reload(); // Reload to show updated status
                 } else if (data.time_remaining !== undefined) {
                     // Sync timer with server
@@ -48,6 +48,7 @@ document.addEventListener("DOMContentLoaded", function() {
 
     // Initial call
     updateTimer();
+    checkStatus();
     
     // Update every second
     const interval = setInterval(updateTimer, 1000);

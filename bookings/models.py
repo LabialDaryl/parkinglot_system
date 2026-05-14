@@ -47,12 +47,18 @@ class ParkingSlot(models.Model):
         }
         return icons.get(self.status, '⚪')
 
+    @property
+    def has_accepted_reservation(self):
+        """Return True when a reservation has already been accepted for this slot."""
+        return self.reservations.filter(status='accepted').exists()
+
 
 class Reservation(models.Model):
     """Represents a parking slot reservation."""
 
     STATUS_CHOICES = [
         ('active', 'Active'),
+        ('accepted', 'Accepted'),
         ('expired', 'Expired'),
         ('checked_in', 'Checked In'),
         ('completed', 'Completed'),
